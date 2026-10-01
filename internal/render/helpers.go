@@ -74,22 +74,25 @@ func logoBox(conf cnd.Conference, g theme.Geometry) (w, h float64, ok bool) {
 	return w, w / aspect, true
 }
 
-// rolesLine renders the speakers' profile titles as one line.
+// rolesLine renders the speakers' profile titles as one line, one segment per
+// speaker in the order the names above them are listed.
 //
-// The upstream `title` field is free text and inconsistent, so this only
-// tidies: blanks are dropped, and duplicates are collapsed so two colleagues
-// from the same employer read as "Bergsdal" rather than "Bergsdal · Bergsdal". When nobody has
-// a title the line is omitted entirely rather than left as empty space.
+// Repetition is deliberate. Colleagues sharing an employer used to be collapsed
+// to a single segment, which reads more tidily right up until it does not line
+// up: a workshop with four people from Nav showed four names over one role, and
+// there was no telling which of them it described. Two people with the same
+// role line means the line says it twice.
+//
+// The upstream `title` field is free text and inconsistent, so this still
+// tidies what it can: a blank contributes nothing rather than a stray
+// separator, and when nobody has a title the line is omitted entirely rather
+// than left as empty space.
 func rolesLine(speakers []cnd.Speaker) string {
 	var out []string
-	seen := map[string]bool{}
 	for _, sp := range speakers {
-		t := strings.TrimSpace(sp.Title)
-		if t == "" || seen[strings.ToLower(t)] {
-			continue
+		if t := strings.TrimSpace(sp.Title); t != "" {
+			out = append(out, t)
 		}
-		seen[strings.ToLower(t)] = true
-		out = append(out, t)
 	}
 	return strings.Join(out, " · ")
 }

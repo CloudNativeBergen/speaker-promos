@@ -202,9 +202,12 @@ func TestRolesLine(t *testing.T) {
 		{[]string{""}, ""},
 		{[]string{"Utvikler"}, "Utvikler"},
 		{[]string{"Utvikler", "Naisutvikler"}, "Utvikler · Naisutvikler"},
-		// Colleagues sharing an employer read once, not twice.
-		{[]string{"Bergsdal", "Bergsdal"}, "Bergsdal"},
-		{[]string{"Bergsdal", "bergsdal"}, "Bergsdal"},
+		// One segment per speaker, even when two of them read the same: four
+		// names over one role line gave no way to tell who it described.
+		{[]string{"Bergsdal", "Bergsdal"}, "Bergsdal · Bergsdal"},
+		{[]string{"Bergsdal", "bergsdal"}, "Bergsdal · bergsdal"},
+		{[]string{"Utvikler hos Nav", "Utvikler hos Nav", "Naisutvikler", "Utvikler hos Nav-IT"},
+			"Utvikler hos Nav · Utvikler hos Nav · Naisutvikler · Utvikler hos Nav-IT"},
 		// Speakers with no title are skipped rather than leaving a stray dot.
 		{[]string{"Utvikler", "", "Arkitekt"}, "Utvikler · Arkitekt"},
 	} {
