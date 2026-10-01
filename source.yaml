@@ -1,0 +1,1722 @@
+# What the conference website said, as of the updatedAt on each object.
+#
+# Written by every promo command after it reads the program, and only when the
+# website's content changed — so this file's history is a log of CMS edits.
+# Do not edit it: corrections go in promos.yaml, and this file is overwritten.
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Conference
+metadata:
+  name: 2026.cloudnativedays.no
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Cloud Native Days Norway 2026
+  startDate: "2026-10-26"
+  endDate: "2026-10-27"
+  city: Bergen
+  country: Norway
+  domain: 2026.cloudnativedays.no
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 584db4de-d0ac-4d3a-9fc7-33d541b6c862
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: "Akkurat nok Nett: Et \U0001F1F3\U0001F1F4 datasenter på en laptop?"
+  abstract: |-
+    I Norge er det utviklet flere plattformer med god bruk av åpen kildekode de siste ti årene. De aller fleste av dem har til felles at de forutsetter et infrastuktur-lag: Noen andre leverer maskinvare, nettverk, lagring, eller identitet. Dessverre blir fortsatt mesteparten av disse tjenestene levert av utenlandske skyleverandører. Det kan vi gjøre noe med.
+
+    Infrastukturlagene er prinsippene og byggeklossene som gjør Kubernetes mulig som plattform. Hvert av lagene er en smal fagnisje og kompetansen til å bygge og drifte dem effektivt er tilsvarende sjelden. Men det er nettopp her digital suverenitet avgjøres, ikke bare i applikasjonslaget der vi allerede er gode. Suverenitet handler ikke bare om hvor maskinene står eller hvem som eier dem. Det er også viktig at kunnskapen om infrastruktur finnes, at den er åpen og at den er delt. Hvis vi ikke selv forstår og kan endre eller bygge om systemene våre, er vi ikke suverene, uansett hvor gode vi er på koden som kjører over!
+
+    Dette foredraget bruker nettverk som eksempel. Påstanden er enkel: Nettverkslaget lar seg bygge effektivt og billig med åpen kildekode. Med bruk av god, enkel design kan vi gjenbruke den samme modellen uansett størrelse: Først en podman-pod med iPXE på en utviklerlaptop, så en Talos-hjemmelab bygd med BGP-mesh over en flat L2-sone, og til slutt en L3 clos-fabric i et datasenter over 16 rack.
+
+    Det som gjør dette spesielt interessant er at lagene og teknlogien oppfører seg likt hele veien. Prinsippene, komponentene og grensesnittene kan være de samme for alle tre skalaene. Det er bare den fysiske realiseringen som skiller dem: iPXE til oppstart av maskiner, IPv6-adressering, BGP, ruting med RFC 8950 og Talos med Cilium BGP control plane, alt dette kan opptre på samme måte enten det er en pod på en laptop, eller et rack i et datasenter.
+
+    • Vil du lære mer om hvordan og hvorfor du bør kjøre Talos med Cilium BGP og uendelig mange ekte service-IPer på hjemmelaben din, kom på foredraget mitt!
+
+    • Vil du lære mer om hva vi kan gjøre sammen for å dele, videreutvikle og kodifisere teknisk kunnskap om bygging av norsk sky, kom på foredraget mitt!
+  format: workshop_120
+  level: intermediate
+  status: confirmed
+  topics:
+    - Cloud Infrastructure & Operations
+    - Kubernetes & Orchestration
+  schedule:
+    date: "2026-10-26"
+    day: 1
+    track: 'Track 1: Full Day Workshops'
+    startTime: "09:00"
+    endTime: "11:00"
+  speakers:
+    - key: jan-ivar-beddari
+      id: f6dcd0b5-9a39-4c33-8192-64c447bdb82a
+      slug: jan-ivar-beddari
+      name: Jan Ivar Beddari
+      title: Dataverket
+      image: https://cdn.sanity.io/images/mvzwvw14/production/2a1929eb98cb48ba18db4cd355a15150160209f4-740x827.png
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: d4f0e85b-42c4-483f-a919-ca57c946ed3e
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Shift Left with Reliability Testing: A Hands-on Introduction to k6'
+  abstract: |-
+    Incidents are expensive, stressful, and lead to poor user experiences. The good news is that they’re also preventable. With the right tools and practices in place, you can uncover and address performance issues before they impact your users.
+
+    In this beginner-friendly hands-on lab, you’ll learn how to make reliability testing part of your overall observability strategy, using k6 to identify performance bottlenecks proactively.
+
+    Starting with the low-code k6 Studio tool and progressing into k6 test scripts, you’ll learn how to test APIs, monitor websites using simulated traffic, and analyze test results in Grafana to build a deeper understanding of your system’s behavior under load. You’ll get practical guidance to shift from reactive firefighting to proactive reliability, using testing and observability together to keep your systems fast, healthy, and outage-resilient.
+
+    And what happens when your local machine isn't enough? In the last half of the workshop, we will explore a cloud-native approach to scaling. You will learn how to use the k6 Operator to orchestrate distributed load tests directly on a Kubernetes cluster using Custom Resources.
+
+    By the end of three hours, you will:
+
+    • Build a complete k6 test flow, starting with k6 Studio and evolving into a full script.
+
+    • Perform API performance tests with meaningful thresholds, assertions, and checks.
+
+    • Visualize and analyze test results in Grafana dashboards to gain deep insights into system performance under load
+
+    • How to scale, moving from a single k6 instance to a distributed "runner" model to simulate massive load with the k6-operator for Kubernetes.
+
+    Requirements:
+
+    • Laptop with WiFi access
+
+    • Docker and Docker Compose
+
+    • An IDE, like VSCode or Cursor
+
+    • A terminal, like iTerm or VSCode, to run commands
+
+    • k6 OSS binary installed
+
+    • k6 Studio installed
+  format: workshop_120
+  level: beginner
+  status: confirmed
+  topics:
+    - Observability & Reliability
+  schedule:
+    date: "2026-10-26"
+    day: 1
+    track: 'Track 2: Morning Workshops'
+    startTime: "09:00"
+    endTime: "11:00"
+  speakers:
+    - key: imma-valls
+      id: b526ddfd-9b92-47e4-acd7-ca7e6547de27
+      slug: imma-valls
+      name: Imma Valls
+      title: Staff Developer Advocate at Grafana Labs
+      image: https://cdn.sanity.io/images/mvzwvw14/production/5024ac460ee3299c72096455555f3afb9e9330c1-1536x2048.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/imma-valls
+        bluesky: eyeveebee.bsky.social
+        x: eyeveebee
+        github: immavalls
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: tom-donohue
+      id: 9ba959c7-4774-4073-9f61-60081e9af071
+      slug: tom-donohue
+      name: Tom Donohue
+      image: https://avatars.githubusercontent.com/u/1423165?v=4
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 2a3dab05-9bcd-4eba-860c-75d1138db457
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Pleesah, lær meg mer om Kubernetes!
+  abstract: |-
+    Kubernetes har blitt en sentral del av moderne applikasjonsdrift, men for mange oppleves det som komplekst, utilgjengelig og fullt av begreper som er vanskelige å sette i sammenheng. Dette kurset er laget for å senke terskelen og gi en trygg inngang til Kubernetes.
+
+    I løpet av kurset lærer deltakerne mer om hva Kubernetes er og hvilke problemer det er ment å løse. Vi ser på de viktigste byggesteinene, som containere, pods, services og deployments, og går gjennom oppgaver om disse konseptene. Fokus ligger på forståelse fremfor konfigurasjonsdetaljer, slik at deltakerne får et mentalt kart de kan bruke videre.
+
+    Kurset retter seg mot utviklere og tekniske roller som er nye til Kubernetes, eller som har vært så vidt borti det uten å føle seg helt trygge. Det kreves ingen tidligere erfaring med Kubernetes, kun en grunnleggende forståelse av programvareutvikling og moderne applikasjoner.
+
+    Målet er at deltakerne etter kurset skal forstå hva som faktisk skjer når en applikasjon kjøres i Kubernetes, kunne delta i tekniske diskusjoner med større trygghet, og vite hvor de skal gå videre for å lære mer eller komme i gang selv. Kurset gir et solid fundament for videre utforsking av Kubernetes, enten i eget prosjekt eller i samarbeid med andre.
+  format: workshop_120
+  level: beginner
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+  schedule:
+    date: "2026-10-26"
+    day: 1
+    track: 'Track 3: Mixed Workshops'
+    startTime: "09:00"
+    endTime: "11:00"
+  speakers:
+    - key: tania-holst
+      id: 1dd1ac13-e36b-4dca-95b3-23a990149a92
+      slug: tania-holst
+      name: Tania Holst
+      title: Utvikler
+      image: https://cdn.sanity.io/images/mvzwvw14/production/23f4221fde8c8877739637accfe04d4ecaa7cf44-1536x2048.jpg
+      links:
+        bluesky: taniaholst.bsky.social
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: kyrre-havik
+      id: 3bfa8623-07a3-4997-91c0-d37d5e45f135
+      name: Kyrre Havik
+      title: Naisutvikler
+      image: https://avatars.githubusercontent.com/u/1830501?v=4
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: emil-elton-nilsen
+      id: b32a1379-8051-4191-b015-ecf9a1a8924a
+      slug: emil-elton-nilsen
+      name: Emil Elton Nilsen
+      title: Utvikler hos Nav
+      image: https://cdn.sanity.io/images/mvzwvw14/production/c361e9d3ecb0604c6044d18325213644591c42e6-512x512.jpg
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: øydis-kind-refsum
+      id: efd576e2-f47f-47cf-8298-ad8a1e4bcd45
+      slug: øydis-kind-refsum
+      name: Øydis Kind Refsum
+      image: https://cdn.sanity.io/images/mvzwvw14/production/6a8a84c6161d40912601c3bb051908928122bd13-612x518.png
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: bb41f2fd-5222-43f4-930c-43a6e201c2df
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Agentic Cloud Ops: Praktisk AI-drevet Kubernetes-drift'
+  abstract: |-
+    Er du klar for å gi slipp på kontrollen og la AI-agenter drifte clusteret ditt? I takt med at AI-modeller blir smartere, går vi fra "Infrastructure as Code" til "Infrastructure as Agents". I denne super-praktiske, to-timers workshopen dykker vi ned i "Agentic Cloud Ops". Vi skal se på hvordan vi kan bruke agenter til å ikke bare deploye applikasjoner, men til å overvåke, feilsøke og sikre (hardne) Kubernetes-miljøer helt autonomt.
+
+    Vi starter med å spinne opp et lokalt cluster i Docker (Talos/k3s), før vi slipper agentene løs. Du vil lære hvordan du setter opp agentene, bygger tillit til dem, og hvilke reelle farer og muligheter som ligger i denne teknologien. Hva skal egentlig til for å lykkes med agentisk bruk i produksjon? Bli med, så finner vi det ut i praksis!
+
+    Takeaways:
+
+    • Forståelse for Agentic Cloud Ops vs. tradisjonell GitOps/IaC.
+
+    • Praktisk erfaring med å bruke agenter til deployment, feilsøking og sikkerhets-hardening i K8s.
+
+    • Innsikt i risikohåndtering og suksesskriterier for autonome systemer.
+  format: workshop_120
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Security & Governance
+  schedule:
+    date: "2026-10-26"
+    day: 1
+    track: 'Track 1: Full Day Workshops'
+    startTime: "11:00"
+    endTime: "13:00"
+  speakers:
+    - key: leffen
+      id: ec0f5fbf-fd96-49da-8d7e-9b1ece9ece6b
+      slug: leffen
+      name: leffen
+      image: https://avatars.githubusercontent.com/u/394455?v=4
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: lars
+      id: f93b52ae-c6e2-4723-9ded-48a8b79acca1
+      slug: lars
+      name: Lars
+      image: https://avatars.githubusercontent.com/u/394987?v=4
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 93554bac-f670-42dd-bb86-7d664f640a4c
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Welcome KRMOps on EKS Workshop!
+  abstract: |-
+    KRMOps (Kubernetes Resource Model Operations) is a Kubernetes-native approach to managing cloud resources declaratively. It extends the Kubernetes Resource Model (KRM) beyond cluster-native resources to AWS services and infrastructure, enabling fully API-driven cloud provisioning and reconciliation.
+    KRMOps is powered by ACK (AWS Controllers for Kubernetes) and kro (Kube Resource Orchestrator), both are now available as EKS Capabilities.
+    What are EKS Capabilities?
+    EKS Capabilities are fully managed, Kubernetes-native features that run within Amazon EKS, eliminating the need to install, maintain, and scale critical platform components on your worker nodes. This workshop focuses on ACK and kro capabilities:
+
+    • ACK - Enables management of AWS resources (S3, RDS, IAM, etc.) using Kubernetes APIs with continuous reconciliation to correct drift.
+
+    • kro - Allows you to define custom Kubernetes APIs that compose multiple resources into higher-level abstractions using simple configuration and CEL (Common Expression Language) .
+
+    With EKS Capabilities, AWS handles all operational aspect: installation, updates, scaling, and patching, while these services run within EKS rather than consuming your cluster resources.
+    How KRMOps Works with EKS Capabilities
+    Traditional cloud provisioning relies on imperative approaches (e.g., AWS SDK and CLI). With KRMOps and EKS Capabilities, everything is defined using Kubernetes-style YAML manifests that are continuously reconciled. The combination of ACK and kro capabilities enables:
+
+    • Declarative AWS Resource Management (via ACK capability):
+
+    • Define AWS services using Kubernetes-native objects.
+
+    • Apply them using kubectl, just like Kubernetes-native resources.
+
+    • Continuous reconciliation automatically corrects drift in AWS resources.
+
+    • Automatic Dependency Resolution (via kro capability):
+
+    • kro ensures resource dependencies are met before provisioning.
+
+    • It dynamically updates configurations based on state changes.
+
+    • Compose both Kubernetes and AWS resources into unified abstractions (RGDs).
+
+    • Self-Healing Infrastructure:
+
+    • ACK continuously reconciles AWS resources to match desired state.
+
+    • kro ensures Resource Graph Definitions remain consistent.
+
+    • Failures are monitored and corrected without manual intervention.
+
+    • Zero Operational Overhead:
+
+    • Capabilities run within EKS, not on your worker nodes.
+
+    • AWS manages updates, scaling, and security patching.
+
+    The goal of this workshop is to demonstrate the powerful features and benefits of using kro to define, provision, and manage AWS resources directly from your EKS clusters. This workshop will walk through real-world examples, showcasing an end-to-end workflow for orchestrating cloud resources using kro’s Resource Graph Definitions (RGDs). The entire workshop takes about 2 hours to complete.
+    What You Will Learn
+    The modules in this workshop are designed around the most frequent use cases for EKS Capabilities in Kubernetes-based AWS environments by Platform Engineers and Developers. You will gain hands-on experience in:
+
+    • Using ACK capability to manage AWS resources (S3, RDS, IAM) declaratively from Kubernetes.
+
+    • Defining and deploying Resource Graph Definitions (RGDs) with the kro capability to compose multiple resources.
+
+    • Deploying a sample web application that dynamically provisions and interacts with AWS-managed services.
+
+    • Implementing IAM-based authentication for applications running inside the EKS cluster.
+
+    • Using nested RGDs to simplify complex cloud resource orchestration.
+
+    • Understanding how fully managed capabilities eliminate operational overhead.
+
+    Why Use EKS Capabilities?
+    EKS Capabilities introduce a powerful declarative approach for managing AWS services within Kubernetes with zero operational overhead. With ACK and kro capabilities, you can:
+
+    • Manage AWS resources using native Kubernetes APIs with continuous reconciliation (ACK).
+
+    • Define cloud resources as modular and reusable components using RGDs (kro).
+
+    • Dynamically manage dependencies between AWS services and Kubernetes workloads.
+
+    • Eliminate operational burden - AWS handles installation, updates, scaling, and patching.
+
+    • Free up cluster resources - Capabilities run within EKS, not on your worker nodes.
+
+    By the end of this workshop, you will have hands-on experience with EKS Capabilities and understand how they simplify AWS resource management using a fully managed, Kubernetes-native approach.
+    Let’s get started!
+  format: workshop_120
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+  schedule:
+    date: "2026-10-26"
+    day: 1
+    track: 'Track 2: Morning Workshops'
+    startTime: "11:00"
+    endTime: "13:00"
+  speakers:
+    - key: hari-charan-ayada
+      id: acc8c649-431a-4de4-9787-b769d7ee12d5
+      slug: hari-charan-ayada
+      name: Hari C. Ayada
+      title: Senior Solutions Architect at Amazon Web Services
+      image: https://cdn.sanity.io/images/mvzwvw14/production/a6e62ac6ad0fdcef96237764fb9b96c5ade013ad-512x512.png
+      links:
+        linkedin: https://www.linkedin.com/in/haricharanayada
+        github: google
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: yves-hwang
+      id: 84ae137f-8a44-4d62-8d35-8088fbeb3f72
+      slug: yves-hwang
+      name: Yves Hwang
+      title: Senior Solution Architect
+      image: https://cdn.sanity.io/images/mvzwvw14/production/8f32498b77da85a7f9502a84de196c786f18c3b8-480x640.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/yveshwang
+        github: yveshwang
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: ayskm
+      id: 4f0f5444-0ebf-477e-b4e2-88183eb3ca18
+      slug: ayskm
+      name: Ayskm
+      links:
+        github: google
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: shubhangi-mali
+      id: 3a2221ba-f358-406a-a106-01f3517185e4
+      slug: shubhangi-mali
+      name: Shubhangi Mali
+      image: https://media.licdn.com/dms/image/v2/D4E03AQHdRlSw2wU-Lg/profile-displayphoto-scale_200_200/B4EZxKHed9IsAY-/0/1770770000957?e=1792022400&v=beta&t=luudkF8LOIE4wRqU2jpdh-Ha1Gtv8UrVYvfshc7Lv4Y
+      links:
+        github: google
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 6352a867-013f-4446-a31c-681687d7220e
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Real-Time Analytics with Kafka, Flink and AI Agents: A Formula 1 Workshop'
+  abstract: |-
+    Formula 1 teams rely on a constant stream of telemetry and race data to make critical decisions during a race. In this hands-on workshop, you'll build a real-time AI application that ingests live race data with Apache Kafka, detects anomalies using Apache Flink, and uses AI agents to recommend pit stop strategies as race conditions evolve.
+
+    Through a series of guided exercises, you'll implement stream processing, stateful event analytics, anomaly detection, and agent-driven decision making. You'll also explore how AI agents can consume live event streams to generate race updates and social media content grounded in real-time race events.
+
+    Designed for developers, platform engineers, architects, and data engineers, this workshop focuses on building an end-to-end intelligent application where streaming data directly drives AI-powered actions.
+  format: workshop_120
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-26"
+    day: 1
+    track: 'Track 1: Full Day Workshops'
+    startTime: "14:05"
+    endTime: "16:05"
+  speakers:
+    - key: mic-hussey
+      id: uRtND6nH07D3SlzJFZvzyI
+      slug: mic-hussey
+      name: Mic Hussey
+      title: Principal Solutions Engineer
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: fdc0c794-aadf-4ab8-a4df-6844cf9c3317
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Evolving Kubernetes Scheduling: Workload API, Gang Scheduling, and In-Place Resizes'
+  abstract: |-
+    As Kubernetes handles more complex batch and distributed ML workloads, the limits of default pod-by-pod scheduling become clear. Running these workloads efficiently often requires complex workarounds to manage resource contention.
+
+    In this session, Abdel and Lucy Sweet examine how Kubernetes scheduling primitives are adapting. We will cover the Workload and PodGroup APIs, explaining how they enable gang scheduling, a practical requirement for distributed jobs that rely on "all-or-nothing" placement to prevent resource deadlocks.
+
+    We will also look at lifecycle management via In-Place Pod Resizing. We will demonstrate how to dynamically adjust CPU and memory for pods to run without triggering restarts, which is crucial for applications with slow initialization times.
+
+    Attendees will get a factual look at the current state of these features and how engineers at Google and Uber evaluate them for large-scale environments.
+  format: presentation_40
+  level: beginner
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "09:10"
+    endTime: "09:50"
+  speakers:
+    - key: abdel-sghiouar
+      id: 13d18720-5d52-4ff2-9f29-5d92f0ff0186
+      slug: abdel-sghiouar
+      name: Abdel SGHIOUAR
+      title: Senior Cloud Dev Advocate @Google
+      image: https://cdn.sanity.io/images/mvzwvw14/production/c59c89637d7915cb658d5e813217ef6d5bbf1df6-1714x2400.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/sabdelfettah
+        bluesky: boredabdel.bsky.social
+        x: boredabdel
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: d570c016-e747-4059-bc8a-e70fef533e01
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Observing Kubernetes Policies with Kyverno and VictoriaMetrics
+  abstract: |-
+    Kubernetes policies are often introduced to improve security and consistency, but once enabled they can be difficult to understand and troubleshoot. When a workload is rejected, teams frequently lack visibility into which policy was evaluated, how often it fails.
+    This talk presents a simple, technical workflow for observing Kubernetes policy behavior using Kyverno and VictoriaMetrics. Starting from a single validation policy, we show how policy evaluations and enforcement results are exposed as metrics, ingested into VictoriaMetrics and queried through a standard Prometheus-compatible API. A minimal dashboard is then used to inspect policy failures, affected namespaces and policy execution duration.
+    The talk focuses on making policy enforcement observable using standard Kubernetes primitives and open metrics, without assuming prior experience with policy engines or observability systems.
+  format: presentation_40
+  level: beginner
+  status: confirmed
+  topics:
+    - Security & Governance
+    - Observability & Reliability
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "09:10"
+    endTime: "09:50"
+  speakers:
+    - key: diana-todea
+      id: bf3ee264-073c-44f2-9d11-be7b186ebecf
+      slug: diana-todea
+      name: Diana Todea
+      title: Developer Experience Engineer at VictoriaMetrics
+      image: https://cdn.sanity.io/images/mvzwvw14/production/4b72c6d9b0f883276584de6bdeb61d1068d50c68-267x400.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/diana-todea-b2a79968
+        bluesky: didiviking.bsky.social
+        github: didiViking
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 45322262-7cb5-4860-99aa-9bd1974e8809
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'OpenAPI Meets Kubernetes: Auto-Generating CRDs and Operators the Smart Way'
+  abstract: |-
+    Traditional Kubernetes Operator development often starts with code, leaving the user interface—the CRD—as an afterthought. This talk proposes a declarative, schema-first workflow that flips the script: defining the CRD interface first and deriving the Go types and controller logic from it.
+
+    By treating the OpenAPI specification as the source of truth, we can automate the boilerplate away. This approach standardizes (or "regularizes") the codebase, moving away from the sprawling, custom logic often found in a standard Reconcile() loop. Instead, we model resource behavior under a universal state machine.
+
+    Why This Matters:
+
+    • API-Driven Design: Prototype the end-user experience via OpenAPI before writing any implementation code.
+
+    • Standardized Architecture: Shift from a wide-open reconciliation method to a structured framework where the controller acts as a mere handler for state transitions.
+
+    • Reduced Complexity: Development is reduced to two phases: mapping the schema and filling the specific "code gaps" for Create, Update, and Delete operations.
+
+    Using the MongoDB Atlas Operator as a case study, we will demonstrate how this transition from "custom-coded" to "schema-driven" results in a more maintainable, predictable, and scalable operator.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Cloud Infrastructure & Operations
+    - Architecture & Software Patterns
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "09:10"
+    endTime: "09:50"
+  speakers:
+    - key: josvaz
+      id: e7d15cd9-0404-4e03-a673-98becf4c42b5
+      slug: josvaz
+      name: josvaz
+      title: Sr Software Developer at MongoDB
+      image: https://avatars.githubusercontent.com/u/514554?v=4
+      links:
+        linkedin: https://www.linkedin.com/in/josvazg
+        github: josvazg
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 053dbca0-1cac-4611-89d2-5994b6513576
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Operating Telco-Grade Kubernetes Across Bare Metal and Virtualized Infrastructure
+  abstract: |-
+    Telecom infrastructure demands the performance of bare metal and the flexibility of virtualized environments—but unifying both under a single operational model is challenging. At Ericsson, we’ve built a cloud-native platform powered by Kubernetes, Cluster API, and Metal3.io to automate the lifecycle of telco-scale infrastructure spanning bare metal, OpenStack (via CAPO), and KubeVirt based virtualization.
+    With nearly tens of thousands of servers in production, this platform delivers fully declarative lifecycle management, zero-downtime upgrades, and consistent observability across heterogeneous environments—all while meeting stringent telecom SLAs. This session shares the architectural principles, automation patterns, and operational lessons that make large-scale hybrid infrastructure practical and reliable. Attendees will learn how open-source collaboration and upstream innovation are enabling truly telco-grade cloud-native operations.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "10:00"
+    endTime: "10:40"
+  speakers:
+    - key: kashif-nizam-khan
+      id: 6ce988a7-9432-4e3c-a276-0b73fc76e8a4
+      slug: kashif-nizam-khan
+      name: Kashif Khan
+      title: Maintainer, Principal Open source Architect, Co-Chair CNCF TAG Infrastructure
+      image: https://cdn.sanity.io/images/mvzwvw14/production/588fbc1c2cebf694ecc6c2d0f3fa7066cd232c06-1024x1024.png
+      links:
+        linkedin: https://www.linkedin.com/in/kashifnizamkhan
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: ganesh-vasudevan
+      id: 1e80d498-4878-4341-9352-00142ce180ec
+      slug: ganesh-vasudevan
+      name: Ganesh Vasudevan
+      image: https://media.licdn.com/dms/image/v2/D4D03AQE2h9R_GrqlkA/profile-displayphoto-scale_200_200/B4DZ3NKvHkHwAY-/0/1777263639378?e=1779321600&v=beta&t=Ic-bJEhSd8EIKaKVI4hIxMjw-2U5inMHjzrjIxLuToU
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 1c140f75-58ac-423a-9c30-4949074c2a69
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'OpenTelemetry OpAMP for You and Me: The OpAMP Guide We All Desperately Needed'
+  abstract: |-
+    In 2022, OpenTelemetry (OTel) announced a new network protocol called the Open Agent Management protocol (OpAMP) as a means of managing fleets of data collection agents.
+
+    Among other things, it is VERY well-suited for managing fleets of OTel Collectors. As organizations increase their adoption of OpenTelemetry, they find themselves having to manage not one, not two, not five Collectors, but perhaps tens or even hundreds of them. How do you keep track of all of that? The answer is with OpAMP.
+
+    The thing about OpAMP though, is that, while powerful, it remains confusing and elusive to many, and while it is fairly extensively documented, it’s not exactly easy to understand. There are a few OpAMP tutorials out there, many of which barely scratched the surface. But no longer!
+
+    In this session, you will learn:
+    * What is OpAMP, really?
+    * OpAMP components
+    * Why it's great for managing fleets of Collectors
+    * How OpAMP works for OTel Collectors
+    * OpAMP, OTel Collectors, and Kubernetes
+    * A live demo
+    * The future of OpAMP
+
+    But OpAMP documentation is sparse and confusing at best. This session aims to demystify OpAMP and unravel its mysteries, so that attendees have a clear understanding of how it works, the problems it solves, and where it fits into their organization.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Observability & Reliability
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "10:00"
+    endTime: "10:40"
+  speakers:
+    - key: adriana-villela
+      id: a905adfb-79ae-4cab-8ac4-235821941934
+      slug: adriana-villela
+      name: Adriana Villela
+      title: Principal Developer Advocate
+      image: https://cdn.sanity.io/images/mvzwvw14/production/d9e6198dd493ba107d9cec3d9ce4abc1d64123a7-2316x3088.jpg
+      links:
+        bluesky: adrianamvillela.bsky.social
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: josh-lee
+      id: 7e33774c-c8ac-498e-840e-e1c73a2d000a
+      slug: josh-lee
+      name: Josh Lee
+      title: Open Source Advocate @ Altinity
+      image: https://avatars.githubusercontent.com/u/11478793?v=4
+      links:
+        linkedin: https://www.linkedin.com/in/joshuamlee
+        bluesky: joshleecreates.bsky.social
+        github: joshleecreates
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 5b1da37c-c712-44aa-ac1c-c3408e73d87a
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Secure mesh network across all your platforms
+  abstract: |-
+    Infrastructure and services is increasingly getting spread across platforms and locations. One might run database and internal services on premise, while web services or customer facing services is running in Gigahost, Azure or AWS. Developers are run test jobs in GitHub Actions and want access to internal test data. Colleagues are out in the field with equipment truly on the edge of the network.
+
+    How do we even count the combination of things that need to talk together at any given time, securely, and effortlessly. Every platform and vendor pushes their own solution, you might have made your own, some web based, some VPN-based.
+
+    It rapidly gets complicated, everything needs to talk, but nothing talks together in the same way.
+
+    In this presentation, I will introduce you to Headscale and Tailscale. Headscale is an open source control server that lets you use Tailscale's powerful, yet simple "mesh" VPN client to solve all of these problems by giving you fixed IP-addresses for every device and service you need. It is your little private internet, when you need it.
+
+    We will set up a Headscale server live, and get started by building a network of machines, services, GitHub Actions, Kubernetes, SSH and end users.
+
+    In addition, we will look at how we can use powerful access controls to restrict access between users, services and parts of the network based on the users or services identity.
+
+    If you are setting up your laptop and a NAS, a Raspberry Pi, advance homelab, or use AWS, GCP, Azure and on premise at the same time, this could be the tool you have been missing.
+
+    Making safe connections, direct and effortless.
+  format: presentation_40
+  level: beginner
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "10:00"
+    endTime: "10:40"
+  speakers:
+    - key: kristoffer-dalby
+      id: 8f57f0e0-96f3-4390-b41b-7524f07c4acb
+      slug: kristoffer-dalby
+      name: Kristoffer Dalby
+      title: Member of technical staff
+      image: https://avatars.githubusercontent.com/u/98431?v=4
+      links:
+        linkedin: https://www.linkedin.com/in/kradalby
+        github: kradalby
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: d3bb8ab6-d60e-4489-bafd-aac1fa8ea5f8
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'From Frankenstein to Kamaji: Lessons in Building a Single CAPI Cluster Across Multiple Providers'
+  abstract: |-
+    At Giant Swarm we use Cluster API to provision and bootstrap our k8s clusters. With this setup, control plane (CP) and worker nodes must run on the same infrastructure which was never an issue so far...
+
+    However, in bare-metal environments, using 128-core servers for CP nodes is luxury. It's far more efficient to host them as virtual machines on a hypervisor while keeping workers on physical hardware. But can we get around CAPI's limitations?
+
+    We will walk through how we built Frankenstein's cluster by mixing vSphere for the CP and Proxmox for workers as a testing ground. While technically functional, this required "hacky engineering". We will share the hurdles we hit and the operational risks of this hybrid cluster setup.
+
+    Finally, we will demonstrate how we solved this challenge with a cleaner, upstream-friendly alternative. Kamaji lets us run the CP as pods in a management cluster. We achieved even better resource optimisation with full native community support and no custom hacks.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "11:00"
+    endTime: "11:40"
+  speakers:
+    - key: xavier
+      id: 46364443-0f47-41c1-829c-8e89d600e810
+      slug: xavier
+      name: Xavier
+      title: Solutions Architect
+      image: https://cdn.sanity.io/images/mvzwvw14/production/134a685396103fb2eeee9d215dc3947a0c6f1199-1894x1926.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/avrillier
+        github: vxav
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: simon-weald
+      id: 22b5f9bd-54d9-42cc-aac3-4187f71de3a0
+      slug: simon-weald
+      name: Simon Weald
+      title: Site Reliability Engineer for Giant Swarm
+      image: https://cdn.sanity.io/images/mvzwvw14/production/427df1547c1820f21d8830f40fe92546e0da63ae-4000x4718.jpg
+      links:
+        bluesky: glitchcrab.bsky.social
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 4842089d-b0e4-435d-bf4a-6f1118041c9f
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'When the SysAdmins Knock on Your Cluster: Surviving the Great Virtualization Migration'
+  abstract: |-
+    For years, cloud-native engineers could treat infrastructure as a given. Whether it was an on-prem VMware cluster or a hyperscaler, the foundation was just there. Over the last two years, this has changed. Commercial shifts in the hypervisor market and increasing demands for data sovereignty are actively forcing companies to evaluate alternatives.
+
+    Many organizations look for a simple 1:1 replacement for their legacy VMs, which often leads to frustration. However, those who view this as an opportunity for application modernization frequently turn to KubeVirt. This shift turns Kubernetes into the unified "operating system" for both legacy VMs and modern containers and lays the groundwork for AI platforms.
+
+    If you are working in the cloud-native space, this shift will likely affect your clusters soon.
+
+    In this session, I will share my experience from guiding various customers through these virtualization migrations. My goal is to help you understand what happens when traditional infrastructure teams meet cloud-native principles. We will discuss three common challenges I see in the field: the cultural shift (moving from vCenter ClickOps to GitOps), the infrastructure reality (the complexities of managing bare metal), and the data challenge(why traditional storage, backup, and DR concepts often break in Kubernetes).
+
+    Finally, I will offer an honest look at where KubeVirt is a strong fit, and just as importantly, where it is not, so you can proactively help your organization navigate this transition.
+  format: presentation_40
+  level: beginner
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "11:00"
+    endTime: "11:40"
+  speakers:
+    - key: johannes-wagner
+      id: 1b1eb481-d8d0-4c30-9ee5-014ab2f28f2b
+      slug: johannes-wagner
+      name: Johannes Wagner
+      title: Consulting Solutions Architect DevOps & Virtualization Western Europe
+      image: https://cdn.sanity.io/images/mvzwvw14/production/ed9585b54fa1ac35bf9667c3b89ddc26950d0f79-1797x1796.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/johwagner
+        github: ntap-johanneswagner
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 4dba88eb-e663-497c-b6de-228875342ad9
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Vi bytter ut Terraform med Crossplane. Hvorfor i all verden gjør vi det?
+  abstract: |-
+    Vekst er bra – helt til det ikke lenger er det. I årevis kom ny funksjonalitet først mens teknisk gjeld hopet seg opp i det stille. Avhengigheter, treg CI/CD, tette koblinger og midlertidige løsninger gjorde det vanskelig å holde alt oppdatert, og plattformens omdømme ble dårligere for hver måned som gikk.
+
+    Dette er historien om hvordan vi havnet her, hvorfor vi bygger om i stedet for å fikse det vi har, og hvordan vi bruker Crossplane til å skape en utvikleropplevelse folk faktisk liker å bruke.
+
+    Det er også historien om alt som ikke er perfekt, utfordringene vi møtte, og hvorfor det å fortjene utviklernes tillit betyr mer enn noen arkitekturbeslutning. Gode verktøy hjelper. Å være åpen om hva som er ødelagt hjelper mer. Å ikke overselge det du bygger hjelper kanskje aller mest. Du kan velge riktig teknologi og likevel ha ingen som bruker det – hvis du ikke lytter.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "11:00"
+    endTime: "11:40"
+  speakers:
+    - key: trond-jakob-sj-vang
+      id: db2bfbb6-56db-46a6-8ecb-f55dce0dc937
+      slug: trond-jakob-sj-vang
+      name: Trond Jakob Sjøvang
+      title: Manager, Product Expertise @ Sopra Steria
+      image: https://avatars.githubusercontent.com/u/326647?v=4
+      links:
+        github: sjovang
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: petter-arnesen
+      id: 8e480987-a694-4a83-955b-9dc0dfb77935
+      slug: petter-arnesen
+      name: Petter Arnesen
+      title: Cloud and platform dude
+      image: https://avatars.githubusercontent.com/u/26246876?v=4
+      links:
+        linkedin: https://www.linkedin.com/in/pettertech
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: be8f8afd-1b82-4717-94bb-27c98fb76df1
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Vi bygde et hybridmesh. Det var vakkert. Det var unødvendig.
+  abstract: |-
+    Som et ferskt plattformteam i Kartverket ønsket vi å bygge noe robust, fremtidsrettet - og ærlig talt, litt imponerende. Istio ble vårt foretrukne service mesh, og vi tok i bruk både multi-cluster og multi-network med stor entusiasme. Men underveis glemte vi én viktig ting: faktiske brukerbehov.
+
+    Dette foredraget er en ærlig gjennomgang av hva og hvordan vi bygde, hvorfor VI synes det var imponerende, og hvordan vi til slutt innså at det var mer nerdeporno enn nyttig.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Cloud Infrastructure & Operations
+    - Kubernetes & Orchestration
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "11:50"
+    endTime: "12:30"
+  speakers:
+    - key: even-holthe
+      id: f3d8b793-aa65-4da9-9aec-78925f28304d
+      slug: even-holthe
+      name: Even Holthe
+      title: Manager og faggruppeleder Platform Engineering i Bekk
+      image: https://cdn.sanity.io/images/mvzwvw14/production/fe72dff96bec683561d6eb711b61db7712086770-1696x1696.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/evenholthe
+        bluesky: evenh.net
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 7d6eb9b5-b570-43c7-b2a4-801498252403
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Tracking Cardinality Explosions In Flight
+  abstract: |-
+    A new deploy adds a user_id label, and overnight a job goes from 500 to 500,000 series. The index bloats, ingestion slows, and by the time someone gets paged the damage is done. The natural response is to ask the database how bad it is with something like count({__name__=~".*"}) by (job), but that query has to scan the entire series set. It becomes a query of death, and it fails exactly when the storage is already overloaded. In other words, we try to measure cardinality using the same resource that cardinality is putting at risk.
+
+    This talk is about estimating cardinality in flight, while the metrics are still streaming in. The estimator runs as a separate pipeline alongside the storage, not inside it. A small estimator keeps a HyperLogLog sketch per label dimension and publishes the results as ordinary metrics in Prometheus exposition format. It receives data over remote-write and is scraped like any other target. There are no queries against storage, no new query language to learn, and nothing tied to a specific vendor, so any Prometheus-compatible setup can use it.
+
+    What makes this practical is how little it costs to run. It takes about 1 CPU core for processing 1 Mil samples/s, not more than 150MiB per each configured cardinality tracker. Memory is bounded by configuration you choose up front rather than by how large the workload grows, which is what makes the estimator safe to run continuously. Because each estimate is just a cheap metric, you can put it directly in your alerting rules. A cardinality spike then pages you within minutes and tells you which job, tenant, or metric caused it, straight from the alert.
+
+    I will walk through the topology that allows to track cardinality without affecting the production pipeline, explain accuracy and memory tradeoffs behind HyperLogLog precision, and how the work splits across storage and selector nodes to scale horizontally. The reference implementation is open source under Apache 2.0, ships with default alerting rules and Grafana dashboards, and already runs against production workloads.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Observability & Reliability
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "11:50"
+    endTime: "12:30"
+  speakers:
+    - key: devspeaker202
+      id: e94afde3-8765-4208-8e46-50fa2a3e57ee
+      slug: devspeaker202
+      name: Roman Khavronenko
+      title: Engineering Manager at VictoriaMetrics
+      image: https://cdn.sanity.io/images/mvzwvw14/production/36a242a2a96f0c718a9dc06a33b356c65cb890bd-710x738.png
+      links:
+        linkedin: https://www.linkedin.com/in/roman-khavronenko-47b51a63
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: b7fa2b79-d7e8-4002-97ca-a92c283a8c42
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Building a US-Independent Fallback Environment: Successes, Failures, and the Hidden Traps'
+  abstract: |-
+    Most teams talk about cloud sovereignty and provider-exit. Almost nobody has actually built it and can tell you what it costs. This is the real story of building a US-independent fallback environment for a European telematics platform running half a million connected assets: how we selected the solutions and why, and the genuinely hard parts of making sure the core can run outside the major cloud providers at all. Pain and all.
+
+    To be clear, we're not leaving the US owned cloud unless we have to. The point is to be ready if we're ever forced. Everything is built from open source parts you can reproduce yourself, Kafka, HiveMQ, MinIO,OpenBao, GitLab, Harbor, and ArgoCD, so there's no vendor lock and no "only works at our budget."
+
+    And it's an honest account of an ongoing journey, including the part most architecture talks skip: resilience turned out to be an organisational property as much as a technical one. One person quietly owning 13+ systems was a bigger DR risk than any single component we designed around. You'll leave with the solution-selection reasoning, a concrete map of where running outside the big providers actually bites, and the successes, failures, and hidden traps from a project that's still very much underway.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "11:50"
+    endTime: "12:30"
+  speakers:
+    - key: thomas-ornell
+      id: 25d78ec5-3521-4d32-aacc-7848a3c185a5
+      slug: thomas-ornell
+      name: Thomas Ornell
+      title: Cloud Platform Architect - Acting CISO @ ABAX AS
+      image: https://cdn.sanity.io/images/mvzwvw14/production/7904be2b2f9fafa78dc19ef1ba8aedfb52e04ab9-1168x1752.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/ornell
+        x: ornell
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 17bc4de7-c43b-45a1-ad36-a6f0b49398d4
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Git Outta Here: The Gitless GitOps Story'
+  abstract: |-
+    We accidentally forgot Git when building our GitOps setup and ended up improving deployment reliability and supply chain security. In this lightning talk, we share how we went from scattered, non-standardized GitOps repos to a reusable, atomic pipeline building OCI artifacts that can be deployed anywhere from anywhere.
+
+    Why and how did we end up here? What did we learn along the way?
+  format: presentation_20
+  level: beginner
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+    - Architecture & Software Patterns
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "13:30"
+    endTime: "13:50"
+  speakers:
+    - key: kristian-sørensen-stene
+      id: b6e621ad-e84e-45c9-8e14-488ce9605209
+      slug: kristian-sørensen-stene
+      name: Kristian Sørensen Stene
+      title: Platform Engineer
+      image: https://avatars.githubusercontent.com/u/25645138?v=4
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 6a7bfc40-f210-45a5-9c69-76c0383e71bf
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Platform Obesity, not Complexity, is killing our platforms
+  abstract: |-
+    We like to say Kubernetes platforms fail because they’re “too complex”. But complexity isn’t the problem. Platforms fail because they’re obese.
+
+    They’re bloated with an excess of features, tools, abstractions, and opinions.
+
+    The cloud-native ecosystem doesn’t help. It rewards addition, not subtraction.
+
+    Eventually, the platform collides with reality: finite talent, finite attention, finite time. Cognitive load exceeds capacity. Operational friction grows. Engineering quality cracks. Business outcomes stall. ROI quietly evaporates.
+
+    So how do you fix an obese platform? The same way you fix obesity: by creating a calorie deficit, rigorous exercise and discipline. Learning to say 'no'. Subtract, not add. Stay within those constraints across technology, processes, organizational culture, budget, engineering skills, team cognitive load and more.
+
+    In this talk, I'll show you concrete ways to learn to say 'no', subtract, all while improving your platform's capabilities.
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "13:30"
+    endTime: "13:50"
+  speakers:
+    - key: joep-piscaer
+      id: 0dcf6249-bee9-44dd-bbd0-cc3073d69a66
+      slug: joep-piscaer
+      name: Joep Piscaer
+      title: field CTO at Portainer.io
+      image: https://media.licdn.com/dms/image/v2/C4E03AQGOuc5X-csI3Q/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1643916486732?e=1781136000&v=beta&t=IjmIXO-IfNfGHWMLTL5nEIxEsQmnesvXlwXyvMQX8tU
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: b0b311cd-d132-4572-86ca-3f91cd7c301c
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: A perspective on platforms and their capabilities
+  abstract: |-
+    As a platform grows, the centralized platform team becomes a bottleneck. This is often handled by creating a platform team-of-teams, where sub-teams are responsible for capabilities such as observability, databases, storage etc. This transformation can introduce a lot of friction as responsibility of the platform is now split between several teams.
+
+    The CNCF Platform Community has just released a paper where we talk about how platforms and capabilities interact, which addresses this issue in particular. We present some important principles for both the platform and the capability, as well as five concrete factors that capabilities must adhere to in order to behave well in the platform.
+
+    In this talk I'll present this paper, and talk about our work writing it. I will give a birds-eye view of the content, and explain why the perspectives presented are valuable also to small platforms.
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "13:30"
+    endTime: "13:50"
+  speakers:
+    - key: oystein-blixhavn
+      id: 7163733e-3752-4e00-81a5-9e66a15eeb94
+      slug: oystein-blixhavn
+      name: Øystein Hagen Blixhavn
+      title: Fagleder, itverket
+      image: https://cdn.sanity.io/images/mvzwvw14/production/72afdcb845b63f451791ac47c5354d6edf143341-1076x1053.png
+      links:
+        linkedin: https://www.linkedin.com/in/blixhavn
+        bluesky: blixhavn.bsky.social
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: a1a2eabc-0e27-408e-a30d-679be0efb5d4
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'The Legend of Config: Breath of the Cluster'
+  abstract: 'Configuring Ingress, Gateway API, or service meshes in Kubernetes can feel like exploring an open world without a map : one wrong turn, and traffic vanishes. In this session, we’ll explore how to detect and prevent misconfigurations using OpenTelemetry, eBPF-based instrumentation (OBI), and enriched logs from service meshes and ingress controllers. Like a hero collecting tools to unlock new areas, we’ll show how to identify relevant data sources, parse and process their output, and apply common correlation rules to understand the impact of configuration changes. We’ll demonstrate how these techniques can be applied across observability platforms to reduce tool sprawl and improve operational efficiency. Attendees will leave with a practical, backend-agnostic approach to building a multi-source observability strategy for Kubernetes networking.'
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Observability & Reliability
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "13:50"
+    endTime: "14:10"
+  speakers:
+    - key: henrik-rexed-2
+      id: d4d7d8f4-3811-490b-9e8e-aef4306759d4
+      slug: henrik-rexed-2
+      name: Henrik Rexed
+      title: Cloud Native Advocate & CNCF Ambassador
+      image: https://cdn.sanity.io/images/mvzwvw14/production/18c835be15da7ba7791138fa68f0ae5285abefa8-3192x3538.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/hrexed
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 7e2ab83b-e1d2-45f4-9a39-de8dbc9aab1f
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'When Infrastructure Disappears but DNS Remains: A Cloud-Native Security Story'
+  abstract: |-
+    DNS is one of the most trusted components of modern cloud infrastructure, yet a simple configuration mistake can silently hand control of a subdomain to an attacker. Dangling nameserver delegations are often dismissed as expected DNS behavior, making them difficult to detect and easy to overlook.
+
+    In this talk, we demonstrate how abandoned or misconfigured nameserver delegations can be abused to take over trusted subdomains across major cloud providers. Drawing on research conducted across organizations from various industries and institutions in both the Nordic region and internationally, we show how these issues persist in real-world environments and why they remain a challenge for platform and security teams.
+
+    Attendees will learn how dangling NS delegations occur, what impact they can have on cloud-native architectures, and how to identify and eliminate them before they become a security incident.
+  format: presentation_20
+  level: beginner
+  status: confirmed
+  topics:
+    - Security & Governance
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "13:50"
+    endTime: "14:10"
+  speakers:
+    - key: oleksandr-kazymyrov
+      id: 8346fc9c-3b2e-4d97-8b9c-f80aca124818
+      slug: oleksandr-kazymyrov
+      name: Oleksandr Kazymyrov
+      title: Assurance Security Manager
+      image: https://cdn.sanity.io/images/mvzwvw14/production/adb5405f6a14ff5eff2c61fb327b15ea2030fe56-1920x1080.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/okazymyrov
+        github: okazymyrov
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: c16855cf-809c-4e2e-a6c5-2b13165b6b6e
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Det jeg snakker om når jeg snakker om plattformer.
+  abstract: Jeg har jobbet med å lage plattformer i over ti år. Jeg har lyst til å forsøke og oppsummere det jeg har lært og hva som har funket og hva som ikke har funket. Det vil handle like mye om produktutvikling som teknologi.
+  format: presentation_40
+  level: intermediate
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "13:50"
+    endTime: "14:10"
+  speakers:
+    - key: audun-fauchald-strand
+      id: ba3a5da8-c31d-48c3-a31a-6444f53c0c35
+      slug: audun-fauchald-strand
+      name: Audun Fauchald Strand
+      title: Direktør Plattform og Infrastruktur, Nav
+      image: https://media.licdn.com/dms/image/v2/D4E03AQGFkyhBvtrVHQ/profile-displayphoto-scale_200_200/B4EZsw7hkyIMAc-/0/1766052469915?e=1776902400&v=beta&t=ItB2gHtVqJF7DqOFqiBtkN9aA9us9BQ6QBdzfqaHZkE
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: a8fab05e-e68e-423a-a8cc-53bdab035d60
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: The Varnish Gateway API implementation
+  abstract: |-
+    I'm getting close to finish up the first version of the Varnish Gateway API implementation.  This is a fully Open Source Gateway API, leveraging the ultra fast Varnish HTTP cache as a gateway API implementation.
+
+    The talk goes through hurdles encountered development, strengths and weaknesses of my implementation as well as short demo.
+
+    github.com/varnish/gateway contains the source and docs for the project.
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "14:20"
+    endTime: "14:40"
+  speakers:
+    - key: per-buer
+      id: e049fcfa-e560-40af-a831-2eb19767b195
+      slug: per-buer
+      name: Per Buer
+      title: Founder, Head of strategy and innovation, Varnish Software
+      image: https://avatars.githubusercontent.com/u/232665?v=4
+      links:
+        linkedin: https://www.linkedin.com/in/perbu
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: a02a8c1d-7837-4ba4-8523-f65052fd813e
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Beyond the Black Box: Kubernetes continuous deployments with the Rendered Manifest Pattern'
+  abstract: |-
+    Traditional application deployment to Kubernetes platforms typically relies upon ArgoCD or Flux, alongside tools like Kustomize, Helm, or Jsonnet. While this does the job, the black box nature of these rendering tools obscures the final manifests, making auditing and troubleshooting significantly more complex.
+
+    By adopting the Rendered Manifest Pattern (RMP), manifest construction is shifted from the deployment phase to the integration phase (shift-left). This approach removes the magic from the deployment process by ensuring that the code in your version control system directly reflects the state of the cluster. Consequently, this enhances transparency and streamlines both quality assurance and auditing.
+
+    In this session we will provide a comparison of the traditional pattern and the newly proposed pattern. By examining the advantages and limitations of both, the aim is to provide the audience with a deeper understanding of how the rendered manifest pattern can improve operational clarity and deployment reliability.
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "14:20"
+    endTime: "14:40"
+  speakers:
+    - key: pip-oomen
+      id: cd72a113-5c9b-4bb4-8859-d1425314b457
+      slug: pip-oomen
+      name: Pip Oomen
+      title: Senior Platform engineer
+      image: https://cdn.sanity.io/images/mvzwvw14/production/f4ac99fe3c8e5ecd274b042544064d9715bd8d17-500x500.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/pjoomen
+        github: pjoomen
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: adbaf41d-ce3c-4af8-b743-86f3917f1cf6
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'One control plane, eight clouds: platform lessons from running OpenSearch as a service'
+  abstract: |-
+    What does it take to run thousands of OpenSearch clusters across eight clouds, from AWS, Google Cloud, and Azure to Oracle Cloud, DigitalOcean, OVHcloud, Exoscale, and UpCloud, and keep the on-call rotation quiet? At Aiven we operate open source data services as a product, and the answer looks a lot like the internal platform you are probably building: one control plane, declarative service definitions, and automation that handles the failures so humans don't have to.
+
+    This talk walks through how our platform actually works, using managed OpenSearch as the case study: how node failures, version upgrades, and backups run without operator intervention, how we roll changes across a fleet this large without breaking anyone's production, and which golden paths we expose to users instead of raw infrastructure knobs.
+
+    Then we look at where this model goes next. We are extending the same platform into a new runtime for data services and a stack for running AI agents, because agents turn out to be platform workloads too: they need state, observability, and guardrails, just like databases do.
+  format: presentation_20
+  level: beginner
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "14:20"
+    endTime: "14:40"
+  speakers:
+    - key: dima-kan
+      id: acae2908-7ef3-4324-a1a4-3504f3dd58fb
+      slug: dima-kan
+      name: Dima Kan
+      title: Head of Search Product and Host of Vector Podcast
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: adff477e-cd22-495e-9fc9-a8187b7f5f9d
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Going full IPv6 in Kubernetes: No limits, just 128 bits!'
+  abstract: |-
+    IPv6 is nothing new yet IPv4 remains the default for the majority, despite IPv6 being ideal for containerized workloads.
+    This talk covers the current state of IPv6 support in Kubernetes.
+
+    Discover why an IPv6 only Kubernetes environment *can* be a good idea.
+    Potential challenges to anticipate, and valuable lessons from doing it in production using Cilium as CNI.
+  format: presentation_20
+  level: beginner
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "14:40"
+    endTime: "15:00"
+  speakers:
+    - key: ole-mathias-aa-heggem
+      id: aeb3396e-6dcf-4920-8554-1e9f8746ee9b
+      slug: ole-mathias-aa-heggem
+      name: Ole Mathias Heggem
+      title: Consultant
+      image: https://cdn.sanity.io/images/mvzwvw14/production/e99bdd64d9208984563ed73c3ef583a4d6d82763-4463x4851.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/ole-mathias-heggem
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 86475011-f6c4-4ae5-9f85-5a475ce3bdf5
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Agentic platforming
+  abstract: "How we went from idea to an agentic way of doing platforming in 14 days. The idea was to offload our slack based support but ended in a2a agents and a mcp fueld slack bot and a claude marketplace. And yes - you can even tame old bastards like DB2 this way - altought no-one asked \U0001F603"
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+    - Architecture & Software Patterns
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "14:40"
+    endTime: "15:00"
+  speakers:
+    - key: david-j-m-karlsen
+      id: 3bf26e4f-91d8-4fc6-9d74-fab830e00e47
+      slug: david-j-m-karlsen
+      name: David J. M. Karlsen
+      title: Solution architect & product developer
+      image: https://cdn.sanity.io/images/mvzwvw14/production/55549b1b149eb652c4c7db93494df20b267185d5-1280x1973.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/davidkarlsen
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: ibrahim-umar
+      id: d69277c5-30e2-4bd0-9ca6-c375a3722c9f
+      slug: ibrahim-umar
+      name: Ibrahim Umar
+      title: Senior DevOps Engineer
+      image: https://cdn.sanity.io/images/mvzwvw14/production/12065b024234fe1956d1dff0c4e2b292390b5d3e-180x240.jpg
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: e053dad6-ffeb-4d23-9053-439ffed8e6a8
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Scaling LLM access using an AI gateway
+  abstract: At the Norwegian Digitalisation Agency (Digdir), we are exploring Agentgateway, an open-source project, as a shared entry point for accessing LLM providers and MCP servers. This allows us to centrally manage credentials, authentication, rate limits, and observability across models and providers running on-premises and in the cloud. This session covers how Agentgateway handles authentication, model-based routing, rate-limit enforcement, upstream credential injection, and API translation before forwarding requests to the configured provider. Attendees will learn where an AI gateway fits within a cloud-native platform and how it can help platform teams manage access to AI services.
+  format: presentation_20
+  level: beginner
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "14:40"
+    endTime: "15:00"
+  speakers:
+    - key: eskedar-kefialew
+      id: tle419bzR4Zp5ODedm3xXG
+      slug: eskedar-kefialew
+      name: Eskedar Kefialew
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 48aac739-105a-4d0a-8097-bbc79dcaef36
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Understanding Kubernetes in a visual way
+  abstract: |-
+    Kubernetes has become the de-facto standard to deploy and operate containerized applications. But understanding Kubernetes can be difficult or time-consuming.
+
+    Several years ago I asked myself how I imagined the concepts of Kubernetes: a pod, a deployment, a service, a secret, a configmap, a cronjob… and then I created a new way of explaining Cloud technologies.
+
+    In the first part of the talk, I will tell you a story, I will tell you my story. How, during more than two years, I worked every evening/nights/wee-end to explaining Kubernetes in sketchnotes, in blog posts, videos and finally published everything (and more) in an illustrated book of more than 270 pages (with all the concepts included Debugging / Troubleshooting and Tips) and why I continue to do it.
+
+    And in the second part, I will explain Kubernetes and its main concepts to you ... in a visual way :-).
+  format: presentation_20
+  level: beginner
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 1: Infrastructure, Scaling, & Orchestration (300m)'
+    startTime: "15:30"
+    endTime: "15:50"
+  speakers:
+    - key: aurelie-vache
+      id: 1fc3ed53-dae7-4b17-97eb-097158b6327d
+      slug: aurelie-vache
+      name: Aurelie Vache
+      title: Developer Advocate at OVHcloud
+      image: https://avatars.githubusercontent.com/u/2543381?v=4
+      links:
+        linkedin: https://www.linkedin.com/in/aurelievache
+        bluesky: aurelievache.bsky.social
+        x: aurelievache
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: a42e5c84-ad0c-409d-88bc-94927d59ef0b
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Observability Anti-Patterns: Lessons from Production Incidents'
+  abstract: |-
+    In a real production networking incident, a platform team receives over 200 alerts in 10 minutes across gateways, routes, retries, and upstream services. Every alert is technically accurate, and yet O11Y just amplified the noise.
+
+    This talk draws on multiple real-world production incidents to explore recurring observability anti-patterns that surface as alerts triggered by incorrect thresholds, missing correlation, high-cardinality telemetry that overwhelms storage, and dashboards that are difficult to navigate
+
+    We will examine why these failures surface at system entry points like network gateways and network routes, where distributed complexity converges. Attendees will leave with practical design patterns for building observability systems that accelerate root cause identification, reduce ambiguity during incidents, and support human reasoning rather than multiplying symptoms at scale.
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Observability & Reliability
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "15:30"
+    endTime: "15:50"
+  speakers:
+    - key: siddhant-khisty
+      id: 1a4cfe56-8708-40ca-8890-5a272419d566
+      slug: siddhant-khisty
+      name: Siddhant Khisty
+      title: Customer Success Engineer @ Solo.io
+      image: https://cdn.sanity.io/images/mvzwvw14/production/b3c4909896e9a913366bdb2414edd7be784a4e75-2116x2822.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/siddhant-khisty
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: aakansha-priya
+      id: 7cb5fbb5-6cce-4c4b-b1ad-d21a2eb84812
+      slug: aakansha-priya
+      name: Aakansha Priya
+      title: Solution Architect @Dash0
+      image: https://cdn.sanity.io/images/mvzwvw14/production/f4919aef0e927f26eb24608d01ccaa8c0b5d20da-960x1280.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/aakansha-priya-1782b91a0
+        x: AakanshaPriya_
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 13198bc9-8639-4a99-8589-3123c5f77aea
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Your platforms matter more than ever with AI
+  abstract: |-
+    Without a clear strategy your agentic coding will accelerate fragmentation! Different tools, inconsistent environments and ad hoc processes will compound into chaos at machine speed. But with a qualitative internal platform, standardized workflows and paved roads, AI becomes a multiplier for quality and consistency instead of risk.
+
+    At the same time, each developer will likely be responsible for more software than ever before. As output increases, cognitive load must decrease. That means less variability, fewer bespoke setups and stronger defaults. The complexity of the systems must go down even if the volume of code goes up.
+
+    Internal developer platforms are no longer a productivity initiative. They are a prerequisite for succeeding in the AI era of software development!
+
+    Join this session to get the blue print strategy for accelerating agentic efficiency with internal platforms!
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "15:30"
+    endTime: "15:50"
+  speakers:
+    - key: jessica-andersson
+      id: 9b97fefe-4180-4cff-bd15-44661ecd2620
+      slug: jessica-andersson
+      name: Jessica Andersson
+      title: Fractional CTO | Platform Engineering Leader | CNCF Ambassador
+      image: https://cdn.sanity.io/images/mvzwvw14/production/54c23f3cd80cc2d5522d0a7711c770f4b8433668-2560x2560.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/anderssonjessica
+        bluesky: solidtubez.com
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 74d58773-bcd7-4539-a90f-c02ad6ee5ad4
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Token Tax: How OpenTelemetry Trace Context Cuts the Cost of AI Log Analysis'
+  abstract: |-
+    AIOps powered by Large Language Models is everywhere—and so is the bill.
+
+    As organizations rush to plug LLMs into incident response workflows, they're discovering an uncomfortable reality: operational data is massive, noisy, and expensive to reason about. More context often means more tokens, more latency, and more cost.
+
+    Meanwhile, many teams are still debating whether OpenTelemetry is worth the effort.
+
+    This talk explores an unexpected connection between the two. Through a series of experiments on real Kubernetes incidents, we compare traditional log-analysis techniques, modern LLM-based approaches, and emerging agentic systems. The results challenge some common assumptions about how AI should consume operational data—and reveal why a seemingly mundane observability feature may be one of the most effective ways to improve both accuracy and cost.
+
+    If you're evaluating OpenTelemetry, building AI-powered operational tooling, or simply trying to understand where AIOps is headed, this session offers a data-backed perspective on a question few teams are asking: what if the best optimization for AI isn't a better model, but better telemetry?
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Observability & Reliability
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "15:50"
+    endTime: "16:10"
+  speakers:
+    - key: barun-acharya
+      id: 7bd2ca53-a88f-4859-ac25-d23cb9704c72
+      slug: barun-acharya
+      name: Barun Acharya
+      title: Senior eBPF Engineer @ Odigos | CNCF Ambassador
+      image: https://cdn.sanity.io/images/mvzwvw14/production/445d4b94844426bcb69c131e21139ce74d13309c-1714x2400.jpg
+      links:
+        github: daemon1024
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: abhinavdubey616
+      id: a012eb23-6a67-45ac-840b-57592f4eceef
+      slug: abhinavdubey616
+      name: Abhinav Dubey
+      title: Solutions Architect at Lucidity
+      image: https://cdn.sanity.io/images/mvzwvw14/production/cc1bc8c1284233044acea82c7cb3fbde28be1672-1594x1586.png
+      links:
+        linkedin: https://www.linkedin.com/in/abhinavd26
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: f2efdb72-c693-45e1-b697-4fe23118d259
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Friheten i Koden: Digital Sovereignty for the Nordic Age'
+  abstract: |-
+    Digital sovereignty is dominating boardroom conversations across Europe. However, it's being built, or broken, in pull requests. Every managed service you adopt, every proprietary SDK you reach for, every platform decision made for convenience over portability: these are sovereignty decisions, and they're being made by developers and platform engineers every single day.
+
+    This talk is not for your CISO. It's for you.
+
+    The Vikings didn't avoid the world, they were among its greatest traders and explorers. But they sailed their own ships, charted their own routes, and never handed control of their journey to a foreign power. Today's cloud landscape demands the same mindset. International companies cannot function without hyperscalers, and this talk won't pretend otherwise. AWS, Azure, and GCP are not the enemy. Dependency without contingency is.
+
+    In recent years, a wave of policies and compliance frameworks has reshaped the landscape, from the EU Data Act and NIS2 to the Cloud Sovereignty Framework. But cutting through that noise to find what actually matters for the people building applications and infrastructure is harder than it sounds. What does "off-ramp ready" look like in practice? We'll explore how industry standards, CNCF-aligned tooling, and open source solutions, covering everything from cluster management to open virtualization and zero-trust security, can give platform teams the portability, transparency, and control that proprietary stacks simply cannot offer. Not as a religion, but as a pragmatic engineering strategy.
+
+    But tools alone aren't enough. Sovereignty can't be bolted on at the end of a project or handed down from a compliance team. It has to live in your team's culture. You need to have a habit of naming trade-offs explicitly, building abstraction layers where lock-in risk is highest, and treating portability as a first-class architectural concern.
+
+    You'll leave with a clear mental model for thinking about sovereignty at the platform level, concrete architectural patterns for reducing lock-in without abandoning the cloud, and three actions you can take next Monday morning, no executive sign-off required.
+
+    Your longship should be yours to sail.
+  format: presentation_20
+  level: beginner
+  status: confirmed
+  topics:
+    - Security & Governance
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "15:50"
+    endTime: "16:10"
+  speakers:
+    - key: jeroen-van-erp
+      id: 2cff4ea2-07e4-4328-8a6c-ac3c7c9abac8
+      slug: jeroen-van-erp
+      name: Jeroen van Erp
+      title: Principal Technology Advocate
+      image: https://avatars.githubusercontent.com/u/117667?v=4
+      links:
+        linkedin: https://www.linkedin.com/in/jvanerp
+        github: hierynomus
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: andr-s-valero
+      id: 74a62714-33a3-47a9-b1f6-a11d2cfeb418
+      slug: andr-s-valero
+      name: Andrés Valero
+      title: Principal Technology Advocate
+      image: https://cdn.sanity.io/images/mvzwvw14/production/931bb90a1b6e483d1619ee7d61f58f3201827296-708x766.png
+      links:
+        linkedin: https://www.linkedin.com/in/avaleror
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: fd51180f-040e-47d9-a4aa-0383b571ecdb
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'From Pipelines to Control Planes: Migrating AWS Account Vending from Terraform to KRM'
+  abstract: "For years, platform teams have relied on static CI/CD pipelines and Terraform to vend and bootstrap cloud accounts. But as our platform scales to hundreds of accounts, pipelines become the bottleneck: they run slow, they are difficult to evolve, and lack reconciliation when infrastructure drifts.\n\nIn this session, we share our journey from a Terraform driven account provisioning platform to a Kubernetes resource model for vending cloud accounts. \nWe will show how representing cloud accounts and their infrastructure as Kubernetes resources enabled continuous reconciliation, simplified developer self-service, and made our platform easier to extend and operate at scale. \nWhether you are building an internal platform or modernizing existing infrastructure, you’ll leave with ideas for designing Kubernetes-native control planes and adopting the Kubernetes Resource Model."
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Platform Engineering & Developer Experience
+    - Cloud Infrastructure & Operations
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "16:20"
+    endTime: "16:40"
+  speakers:
+    - key: eva-kontogiannopoulou
+      id: 727245b7-d4e5-4b13-a971-721791687ced
+      slug: eva-kontogiannopoulou
+      name: Eva Kontogiannopoulou
+      title: TGS
+      image: https://avatars.githubusercontent.com/u/1690375?v=4
+      updatedAt: 2026-10-01T15:36:50Z
+    - key: gopinath-subramani
+      id: 3bf20527-2d5d-469e-ace6-0870b3f0d8ba
+      slug: gopinath-subramani
+      name: Gopinath Subramani
+      title: TGS
+      image: https://cdn.sanity.io/images/mvzwvw14/production/55fd434c54ad4380c2cf8b350a54a2ba964b5dad-657x676.jpg
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 9cff7d02-347d-46b7-b9fe-e1bd87a75f13
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: Network security isn’t dead — it’s just no longer enough
+  abstract: |-
+    Cloud-native architectures didn’t remove the need for network security — they changed how it works.
+
+    While identity has become a critical control plane, network-level controls like private endpoints, VNet integration, and segmentation still play an important role in providing visibility and reducing exposure. The problem is that many architectures treat these controls as sufficient on their own.
+
+    In this lightning talk, we’ll explore how modern cloud patterns combine identity and network in ways that create hidden trust relationships, reduced visibility, and unexpected attack paths.
+
+    Through a few practical examples, we’ll look at where network controls still add value, where they fall short, and why security in cloud-native environments depends on understanding how identity and network interact — not choosing one over the other.
+  format: lightning_10
+  level: intermediate
+  status: confirmed
+  topics:
+    - Cloud Infrastructure & Operations
+    - Security & Governance
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "16:20"
+    endTime: "16:30"
+  speakers:
+    - key: kristoffer-hatland
+      id: 41dfdabf-a8fd-47e1-83c0-78258ec27900
+      slug: kristoffer-hatland
+      name: Kristoffer Hatland
+      title: Cloud Security Architect
+      image: https://cdn.sanity.io/images/mvzwvw14/production/6a1c61c302bec4878748cd2d150f06f85e5a2004-800x800.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/hatland
+        github: krhatland
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: d11de12b-9dae-42d0-8e1c-dc9bb8e07643
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Air-Gapped But Not Feature-Gapped: Building a Stateless Hybrid AI Cluster Under the Norwegian Security Act'
+  abstract: |-
+    How do you deliver modern, agentic AI services when your systems and data are subject to the uncompromising frameworks of the Norwegian Security Act (SSA)? At Telenor, we faced this exact dilemma: the need to build an on-premise, air-gapped, highly secure AI environment with absolutely zero margin for error.
+
+    In this session, we introduce "Pythia", our production-grade, hybrid AI cluster. We will explore the technical realities of combining virtual machines with HPE bare-metal GPU nodes to create a robust architecture, while navigating the issues surrounding a multi security class service.
+
+    The core of our strategy relies on Zero Trust principles, bypassing massive classification hurdles by treating the central AI cluster strictly as a stateless data processor. By enforcing strict session isolation and keeping all access to classified data at the client level we managed to thread this through the needles eye.
+
+    Attendees will learn how to:
+
+    • Implement a stateless AI architecture designed to handle multiple security classes simultaneously.
+
+    • Design remote RAG architectures across distinct security boundaries, keeping classified databases and API endpoints strictly separated from the AI processing cluster.
+
+    • Logging and telemetry when handling classified data
+
+    Join us to discover how to push the boundaries of enterprise AI and open-source flexibility without compromising strict national security compliance.
+  format: lightning_10
+  level: intermediate
+  status: confirmed
+  topics:
+    - Cloud Infrastructure & Operations
+    - Security & Governance
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "16:30"
+    endTime: "16:40"
+  speakers:
+    - key: cecilie
+      id: 6f62790f-bab5-4f7e-85ae-306d1ec3deaa
+      slug: cecilie
+      name: Cecilie Monsen
+      title: Tech Lead
+      image: https://cdn.sanity.io/images/mvzwvw14/production/cd8b80f5d42bbf92747bd7c3a6770f8bbde9a65b-400x400.jpg
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: 68009722-dfca-444f-b50d-ce16f91a71c9
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: How I use cloud-hypervisor to build a DevOps training platform
+  abstract: |-
+    Being new in the field of DevOps can be overwhelming and incidents don't happen every day. What if there was an easy way to train in a lab like environment? I'll show you a "behind the scenes" of intar, the open source DevOps training platform I'm currently building.
+
+    intar uses ephemeral VMs running on cloud-hypervisor to isolate training workloads, called scenarios. A scenario can be a misconfigured nginx, not serving traffic or a broken k8s cluster. SSH is used to connect to the VM and fix the scenario.
+
+    Our journey takes us from starting a scenario down to the VM layer. We'll explore how VMs are set up to run a scenario. After fixing a scenario together, I'll guide you back to the surface where we sit around the campfire and talk a bit about the future of intar.
+  format: presentation_20
+  level: intermediate
+  status: confirmed
+  topics:
+    - Cloud Infrastructure & Operations
+    - Platform Engineering & Developer Experience
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 2: Security, Governance, Observability & Testing (300m)'
+    startTime: "16:40"
+    endTime: "17:00"
+  speakers:
+    - key: stefan-ruzitschka
+      id: 3887961d-25ba-4d33-a173-828cb7478ebb
+      slug: stefan-ruzitschka
+      name: Stefan Ruzitschka
+      title: Principal Software Engineer
+      image: https://cdn.sanity.io/images/mvzwvw14/production/7836d9652e70d4c53aafd0d1cc4a8d7fbe9c50c8-1254x1254.png
+      links:
+        bluesky: icepuma.dev
+      updatedAt: 2026-10-01T15:36:50Z
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: Source
+metadata:
+  name: b33229e4-aed6-4351-91e8-1073a9b98a40
+  updatedAt: 2026-10-01T15:36:50Z
+spec:
+  title: 'Your GitOps Could Be Lying: Verifying Cluster State with Kyverno'
+  abstract: |-
+    GitOps gives you the power to define your desired state and reconciliation tells you whether it's applied. So you think you know what is running.
+
+    But reality can diverge, either through user creativity, drift, or edge-cases your Helm charts didn't cover? We learned that "temporary" manual fixes have a habit of becoming permanent.
+
+    In this lightning talk, we’ll explore the gap between declared intent and verified runtime reality. I’ll show how we use Kyverno’s CEL policy engine to continuously monitor and enforce what is actually running, not just what Git claims should be.
+
+    Expect concrete policy examples and real drift patterns we caught in production.
+  format: lightning_10
+  level: intermediate
+  status: confirmed
+  topics:
+    - Kubernetes & Orchestration
+    - Security & Governance
+  schedule:
+    date: "2026-10-27"
+    day: 2
+    track: 'Track 3: Platform Engineering, SRE & Operations (300m)'
+    startTime: "16:40"
+    endTime: "16:50"
+  speakers:
+    - key: carsten-thiel
+      id: 5fc491c5-e1ad-477b-baf5-7a8541dbfb20
+      slug: carsten-thiel
+      name: Carsten Thiel
+      title: Sparebanken Norge
+      image: https://cdn.sanity.io/images/mvzwvw14/production/f4f39cd97443e3ca4984ba2a25c2b6121b27f312-500x500.jpg
+      links:
+        linkedin: https://www.linkedin.com/in/carstenthiel
+      updatedAt: 2026-10-01T15:36:50Z
