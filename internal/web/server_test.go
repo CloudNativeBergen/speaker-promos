@@ -40,24 +40,24 @@ func testProgram() *cnd.Program {
 			Domain:     "2026.cloudnativedays.no",
 			LogoBright: testLogo,
 		},
-		Sessions: []cnd.Session{
+		Talks: []cnd.Talk{
 			{
-				Date: "2026-10-26", Day: 1, Track: "Track 1: Full Day Workshops",
-				StartTime: "09:00", EndTime: "11:00",
-				Talk: cnd.Talk{
-					ID: talkID, Title: "Nok nett", Format: "workshop_120", Level: "intermediate",
-					Abstract: "Et foredrag om åpen kildekode og norsk suverenitet.",
-					Speakers: []cnd.Speaker{{
-						ID: "sp-1", Name: "Dario Haaland", Slug: "dario-haaland", Title: "Bysten Labs",
-					}},
+				ID: talkID, Title: "Nok nett", Format: "workshop_120", Level: "intermediate",
+				Abstract: "Et foredrag om åpen kildekode og norsk suverenitet.",
+				Speakers: []cnd.Speaker{{
+					ID: "sp-1", Name: "Dario Haaland", Slug: "dario-haaland", Title: "Bysten Labs",
+				}},
+				Schedule: cnd.Slot{
+					Date: "2026-10-26", Day: 1, Track: "Track 1: Full Day Workshops",
+					StartTime: "09:00", EndTime: "11:00",
 				},
 			},
 			{
-				Date: "2026-10-27", Day: 2, Track: "Track 2: Platform Engineering",
-				StartTime: "13:20", EndTime: "13:45",
-				Talk: cnd.Talk{
-					ID: "talk-2", Title: "Pods on Mars", Format: "presentation_25",
-					Speakers: []cnd.Speaker{{ID: "sp-2", Name: "Someone Else", Slug: "someone-else"}},
+				ID: "talk-2", Title: "Pods on Mars", Format: "presentation_25",
+				Speakers: []cnd.Speaker{{ID: "sp-2", Name: "Someone Else", Slug: "someone-else"}},
+				Schedule: cnd.Slot{
+					Date: "2026-10-27", Day: 2, Track: "Track 2: Platform Engineering",
+					StartTime: "13:20", EndTime: "13:45",
 				},
 			},
 		},
@@ -391,8 +391,8 @@ func TestTemplatesEscapeUpstreamText(t *testing.T) {
 	dir := t.TempDir()
 	th, _ := theme.Default()
 	program := testProgram()
-	program.Sessions[0].Talk.Title = `<script>alert("x")</script> & co`
-	program.Sessions[0].Talk.Speakers[0].Name = `<b>bold</b>`
+	program.Talks[0].Title = `<script>alert("x")</script> & co`
+	program.Talks[0].Speakers[0].Name = `<b>bold</b>`
 
 	srv, err := New(Options{
 		Program: program, Set: manifest.New(filepath.Join(dir, "m.yaml")),
@@ -586,7 +586,7 @@ func TestArbitraryPhotoHostIsFetchedVerbatim(t *testing.T) {
 	// pointed at a server that records what it was asked for.
 	url := srv.URL + "/dms/image/v2/ABC/photo?e=1790812800&v=beta&t=sig"
 	sp := cnd.Speaker{Slug: "s", Name: "A Speaker", Image: url}
-	if got := sp.ImageSource(600); got.URL != url {
+	if got := cnd.ImageSourceOf(sp.Image, 600); got.URL != url {
 		t.Fatalf("ImageSource = %q, want the URL untouched", got.URL)
 	}
 
@@ -595,7 +595,7 @@ func TestArbitraryPhotoHostIsFetchedVerbatim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.HasPhoto(sp) {
+	if !r.HasPhoto(sp.Image) {
 		t.Error("a photo on an arbitrary host was not fetched")
 	}
 	if len(asked) == 0 {
@@ -609,7 +609,7 @@ func TestArbitraryPhotoHostIsFetchedVerbatim(t *testing.T) {
 		}
 	}
 	// And the real URL shape parses the same way.
-	if got := (cnd.Speaker{Image: photo}).ImageSource(600); got.URL != photo {
+	if got := cnd.ImageSourceOf(photo, 600); got.URL != photo {
 		t.Errorf("LinkedIn URL = %q, want it untouched", got.URL)
 	}
 }
@@ -1071,9 +1071,9 @@ func TestServedCardUsesTheTalksLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	program := testProgram()
-	program.Sessions[0].Talk.Title = "Praktisk AI-drevet Kubernetes-drift"
-	program.Sessions[0].Talk.Abstract = "Vi ser på hvordan det ikke fungerte og hva vi gjorde med det."
-	program.Sessions[0].Talk.Speakers = []cnd.Speaker{
+	program.Talks[0].Title = "Praktisk AI-drevet Kubernetes-drift"
+	program.Talks[0].Abstract = "Vi ser på hvordan det ikke fungerte og hva vi gjorde med det."
+	program.Talks[0].Speakers = []cnd.Speaker{
 		{ID: "a", Name: "leffen", Slug: "leffen"},
 		{ID: "b", Name: "Lars", Slug: "lars"},
 	}
@@ -1131,7 +1131,7 @@ func TestNameWandCapitalises(t *testing.T) {
 		t.Fatal(err)
 	}
 	program := testProgram()
-	program.Sessions[0].Talk.Speakers[0].Name = "leffen"
+	program.Talks[0].Speakers[0].Name = "leffen"
 
 	srv, err := New(Options{
 		Program: program, Set: manifest.New(filepath.Join(dir, "promos.yaml")),
@@ -1172,8 +1172,8 @@ func TestTitleWandFollowsTheTalksLanguage(t *testing.T) {
 			t.Fatal(err)
 		}
 		program := testProgram()
-		program.Sessions[0].Talk.Title = title
-		program.Sessions[0].Talk.Abstract = abstract
+		program.Talks[0].Title = title
+		program.Talks[0].Abstract = abstract
 		srv, err := New(Options{
 			Program: program, Set: manifest.New(filepath.Join(dir, "promos.yaml")),
 			Theme: th, Size: "portrait", OutDir: filepath.Join(dir, "out"), NoLinks: true,

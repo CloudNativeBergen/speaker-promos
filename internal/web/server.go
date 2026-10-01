@@ -9,6 +9,7 @@
 package web
 
 import (
+	"cmp"
 	"embed"
 	"fmt"
 	"html/template"
@@ -23,6 +24,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/post"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
 	"github.com/vehagn/speaker-promos/internal/theme"
@@ -56,6 +58,10 @@ type Options struct {
 type Server struct {
 	opts     Options
 	renderer *render.Renderer
+	// resolver is the one place a talk meets its corrections, its scraped
+	// handles and its language — the same one the CLI uses, so the page shows
+	// what an export would write.
+	resolver *promo.Resolver
 	tmpl     *template.Template
 
 	converter    raster.Converter
@@ -72,9 +78,9 @@ type Server struct {
 	// this cache does network I/O, and doing that under the manifest lock
 	// would block every other request for as long as the fetch takes.
 	linksMu sync.Mutex
-	// links caches scraped social handles for the process lifetime. Each
-	// speaker page is ~3 MB; re-fetching on every re-render would make editing
-	// unusable even against the on-disk cache.
+	// links caches scraped social handles for the process lifetime, by speaker
+	// key. Each speaker page is ~3 MB; re-fetching on every re-render would
+	// make editing unusable even against the on-disk cache.
 	links map[string]cnd.Links
 
 	// photoMu guards photos, and is separate from mu for the same reason
@@ -106,7 +112,7 @@ func New(opts Options) (*Server, error) {
 		opts.Formats = export.AllFormats
 	}
 	conv, _, hasConv := raster.Find()
-	return &Server{
+	s := &Server{
 		opts:         opts,
 		renderer:     renderer,
 		tmpl:         tmpl,
@@ -115,7 +121,14 @@ func New(opts Options) (*Server, error) {
 		rev:          time.Now().Unix(),
 		links:        map[string]cnd.Links{},
 		photos:       map[string]bool{},
-	}, nil
+	}
+	s.resolver = &promo.Resolver{
+		Program:  opts.Program,
+		Set:      opts.Set,
+		Language: opts.Language,
+		Links:    s.speakerLinks,
+	}
+	return s, nil
 }
 
 // Handler returns the mux serving the site.
@@ -125,19 +138,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /card/{id}", s.handleCard)
 	mux.HandleFunc("GET /talk/{id}", s.handleTalkFragment)
 	mux.HandleFunc("POST /talk/{id}", s.handleTalkUpdate)
-	mux.HandleFunc("POST /speaker/{slug}", s.handleSpeakerUpdate)
+	mux.HandleFunc("POST /speaker/{key}", s.handleSpeakerUpdate)
 	mux.HandleFunc("POST /talk/{id}/titlecase", s.handleTalkTitleCase)
-	mux.HandleFunc("POST /speaker/{slug}/namecase", s.handleSpeakerNameCase)
+	mux.HandleFunc("POST /speaker/{key}/namecase", s.handleSpeakerNameCase)
 	mux.HandleFunc("GET /download/{id}", s.handleDownload)
 	mux.HandleFunc("POST /export", s.handleExport)
 	mux.HandleFunc("POST /import", s.handleImport)
 	mux.Handle("GET /static/", http.FileServerFS(files))
 	return mux
-}
-
-// session finds a session by talk id.
-func (s *Server) session(id string) (cnd.Session, bool) {
-	return s.opts.Program.Session(id)
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -168,13 +176,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 // they point at were addressed with. Shared by the index and the import, which
 // both replace the whole row list.
 func (s *Server) views(size string) ([]talkView, int64) {
-	p := s.probe(s.opts.Program.Sessions)
+	p := s.probe(s.resolver.All())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]talkView, 0, len(s.opts.Program.Sessions))
-	for _, sess := range s.opts.Program.Sessions {
-		out = append(out, s.buildViewLocked(sess, size, p))
+	out := make([]talkView, 0, len(s.opts.Program.Talks))
+	for _, src := range s.opts.Program.Talks {
+		out = append(out, s.buildViewLocked(s.resolver.Talk(src), size, p))
 	}
 	return out, s.rev
 }
@@ -188,10 +196,10 @@ func (s *Server) views(size string) ([]talkView, int64) {
 //
 // err is reported after the view is built rather than instead of it, so a
 // failed edit still leaves the row showing what was actually stored.
-func (s *Server) renderTalk(w http.ResponseWriter, r *http.Request, sess cnd.Session, err error) {
-	p := s.probe([]cnd.Session{sess})
+func (s *Server) renderTalk(w http.ResponseWriter, r *http.Request, src cnd.Talk, err error) {
+	p := s.probe([]promo.Talk{s.resolver.Talk(src)})
 	s.mu.Lock()
-	view := s.buildViewLocked(sess, s.sizeParam(r), p)
+	view := s.buildViewLocked(s.resolver.Talk(src), s.sizeParam(r), p)
 	s.mu.Unlock()
 
 	if err != nil {
@@ -203,11 +211,10 @@ func (s *Server) renderTalk(w http.ResponseWriter, r *http.Request, sess cnd.Ses
 
 // saveAndRender applies one edit and swaps the row it changed back in.
 //
-// save runs under s.mu, which guards the manifest and the revision that card
-// URLs carry; bumping it is what makes the browser refetch this card and only
-// this card.
+// save runs under s.mu, which guards the revision that card URLs carry;
+// bumping it is what makes the browser refetch this card and only this card.
 func (s *Server) saveAndRender(w http.ResponseWriter, r *http.Request,
-	sess cnd.Session, save func() error) {
+	src cnd.Talk, save func() error) {
 	s.mu.Lock()
 	err := save()
 	if err == nil {
@@ -215,20 +222,20 @@ func (s *Server) saveAndRender(w http.ResponseWriter, r *http.Request,
 	}
 	s.mu.Unlock()
 
-	s.renderTalk(w, r, sess, err)
+	s.renderTalk(w, r, src, err)
 }
 
 func (s *Server) handleTalkFragment(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.session(r.PathValue("id"))
+	src, ok := s.opts.Program.Talk(r.PathValue("id"))
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderTalk(w, r, sess, nil)
+	s.renderTalk(w, r, src, nil)
 }
 
 func (s *Server) handleTalkUpdate(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.session(r.PathValue("id"))
+	src, ok := s.opts.Program.Talk(r.PathValue("id"))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -238,27 +245,39 @@ func (s *Server) handleTalkUpdate(w http.ResponseWriter, r *http.Request) {
 		Hidden:       r.FormValue("hidden") != "",
 		Language:     strings.TrimSpace(r.FormValue("language")),
 	}
-	// The title input is pre-filled with the title in use, so submitting it
-	// unchanged is not a shortening.
-	if spec.DisplayTitle == sess.Talk.Title {
+	// The title input is pre-filled with the title in use, so submitting the
+	// submitted one is not a shortening.
+	if spec.DisplayTitle == src.Title {
 		spec.DisplayTitle = ""
 	}
 	if _, err := lang.ParseLanguage(spec.Language); err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.saveAndRender(w, r, sess, func() error {
-		return s.opts.Set.SetTalk(sess.Talk.ID, spec)
+	s.saveAndRender(w, r, src, func() error {
+		return s.opts.Set.SetTalk(src.ID, spec)
 	})
 }
 
 func (s *Server) handleSpeakerUpdate(w http.ResponseWriter, r *http.Request) {
-	slug := r.PathValue("slug")
+	key := r.PathValue("key")
 	// The row to swap back is passed explicitly: a speaker can appear on
 	// several talks, and the one being edited is the one whose form was
 	// submitted.
-	sess, ok := s.session(r.FormValue("talk"))
+	src, ok := s.opts.Program.Talk(r.FormValue("talk"))
 	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var speaker cnd.Speaker
+	found := false
+	for _, sp := range src.Speakers {
+		if sp.Key() == key {
+			speaker, found = sp, true
+			break
+		}
+	}
+	if !found {
 		http.NotFound(w, r)
 		return
 	}
@@ -270,23 +289,15 @@ func (s *Server) handleSpeakerUpdate(w http.ResponseWriter, r *http.Request) {
 	for _, field := range manifest.SpeakerFields() {
 		submitted.SetValue(field, strings.TrimSpace(r.FormValue(field)))
 	}
-	// A handle may be typed with the "@" people say it with.
-	submitted.Links.Bluesky = strings.TrimPrefix(submitted.Links.Bluesky, "@")
-	submitted.Links.X = strings.TrimPrefix(submitted.Links.X, "@")
+	submitted.Links = submitted.Links.Normalize()
 
 	// The form arrives fully populated, because its inputs are pre-filled with
 	// the values in use so they can be edited in place. Only what differs from
 	// what was found is a correction; storing the rest would mark every guess
 	// as confirmed the first time any field was touched, and put a copy of the
 	// whole speaker in the manifest.
-	var base manifest.SpeakerSpec
-	for _, sp := range sess.Talk.Speakers {
-		if sp.Slug == slug {
-			base = manifest.Baseline(sp, s.speakerLinks(sp))
-			break
-		}
-	}
-	existing, _ := s.opts.Set.Speaker(slug)
+	base := promo.Baseline(speaker, s.speakerLinks(speaker))
+	existing, _ := s.opts.Set.Speaker(key)
 
 	// The role line is a composed field, which makes it the one field a plain
 	// diff cannot judge.
@@ -302,15 +313,14 @@ func (s *Server) handleSpeakerUpdate(w http.ResponseWriter, r *http.Request) {
 	// field was pre-filled with, or what the other submitted fields now
 	// compose to. Typing the old value on purpose is indistinguishable from
 	// leaving it, and harmless: the result is the same string.
-	prior := existing.RoleTitle()
+	prior := promo.RoleLine(existing)
 	if prior == "" {
 		prior = base.Title
 	}
-	composed := manifest.SpeakerSpec{
-		Employer: pickNonEmpty(submitted.Employer, base.Employer),
-		Job:      pickNonEmpty(submitted.Job, base.Job),
-	}
-	fresh := composed.RoleTitle()
+	fresh := promo.RoleLine(manifest.SpeakerSpec{
+		Employer: cmp.Or(submitted.Employer, base.Employer),
+		Job:      cmp.Or(submitted.Job, base.Job),
+	})
 	if fresh == "" {
 		fresh = base.Title
 	}
@@ -323,8 +333,8 @@ func (s *Server) handleSpeakerUpdate(w http.ResponseWriter, r *http.Request) {
 	// GitHub has no input, so it is carried over rather than diffed.
 	spec.Links.GitHub = existing.Links.GitHub
 
-	s.saveAndRender(w, r, sess, func() error {
-		return s.opts.Set.SetSpeaker(slug, spec)
+	s.saveAndRender(w, r, src, func() error {
+		return s.opts.Set.SetSpeaker(key, spec)
 	})
 }
 
@@ -344,35 +354,31 @@ func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	size := s.sizeParam(r)
-	svg, sess, ok := s.card(id, size)
+	svg, t, ok := s.card(id, size)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	name := sess.FileStem() + ".svg"
+	name := t.FileStem() + ".svg"
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	w.Write([]byte(svg))
 }
 
 // card renders one talk's SVG with overrides applied.
-func (s *Server) card(id, size string) (string, cnd.Session, bool) {
-	sess, ok := s.session(id)
+func (s *Server) card(id, size string) (string, promo.Talk, bool) {
+	t, ok := s.resolver.ByID(id)
 	if !ok {
-		return "", cnd.Session{}, false
+		return "", promo.Talk{}, false
 	}
-	s.mu.Lock()
-	rewritten := s.opts.Set.Rewrite(sess)
-	s.mu.Unlock()
-
 	// Card, not Inspect: this is the image the browser shows and downloads, so
 	// it needs the photo and the embedded fonts. Inspect is only for the
 	// warnings on the page around it.
-	res, err := s.renderer.Card(s.opts.Program.Conference, rewritten, size, s.cardLanguage(sess.Talk.ID))
+	res, err := s.renderer.Card(s.opts.Program.Conference, t, size)
 	if err != nil {
-		return "", cnd.Session{}, false
+		return "", promo.Talk{}, false
 	}
-	return res.SVG, rewritten, true
+	return res.SVG, t, true
 }
 
 // sizeParam resolves the requested card size, falling back to the configured
@@ -405,12 +411,14 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 }
 
 // speakerLinks returns a speaker's scraped handles, fetching once per process.
+// A speaker page is addressed by slug, so one without a slug has none.
 func (s *Server) speakerLinks(sp cnd.Speaker) cnd.Links {
 	if s.opts.NoLinks || sp.Slug == "" {
 		return cnd.Links{}
 	}
+	key := sp.Key()
 	s.linksMu.Lock()
-	l, ok := s.links[sp.Slug]
+	l, ok := s.links[key]
 	s.linksMu.Unlock()
 	if ok {
 		return l
@@ -421,7 +429,7 @@ func (s *Server) speakerLinks(sp cnd.Speaker) cnd.Links {
 	l, _ = s.opts.Loader.SpeakerLinks(sp)
 
 	s.linksMu.Lock()
-	s.links[sp.Slug] = l
+	s.links[key] = l
 	s.linksMu.Unlock()
 	return l
 }
@@ -455,14 +463,10 @@ func (s *Server) Warm(parallel int, progress func(done, total int)) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			if !s.opts.NoLinks {
-				s.speakerLinks(sp)
-			}
-			// The rewritten speaker, since an image override is what decides
-			// whether there is a photo at all.
-			s.hasPhoto(s.opts.Set.Rewrite(cnd.Session{
-				Talk: cnd.Talk{Speakers: []cnd.Speaker{sp}},
-			}).Talk.Speakers[0])
+			// Resolved, since an image override is what decides whether there
+			// is a photo at all; resolving also fetches the handles.
+			resolved := s.resolver.Talk(cnd.Talk{Speakers: []cnd.Speaker{sp}})
+			s.hasPhoto(resolved.Speakers[0].Image)
 
 			mu.Lock()
 			done++
@@ -476,8 +480,8 @@ func (s *Server) Warm(parallel int, progress func(done, total int)) {
 	wg.Wait()
 }
 
-// probes are the network-dependent answers a view needs: scraped handles, and
-// whether each speaker's photo can actually be fetched.
+// probes are the network-dependent answers a view needs that resolving does not
+// already cache: whether each photo can actually be fetched, by image.
 //
 // They are gathered BEFORE the page lock is taken. Doing the fetching inside
 // buildViewLocked meant one unresponsive image host blocked the lock every
@@ -486,129 +490,56 @@ func (s *Server) Warm(parallel int, progress func(done, total int)) {
 // connection and never answers, then fixed here and bounded by a timeout in
 // internal/cache.
 type probes struct {
-	links  map[string]cnd.Links
 	photos map[string]bool
 }
 
-func (p probes) linksFor(slug string) cnd.Links { return p.links[slug] }
-func (p probes) photoFor(slug string) bool      { return p.photos[slug] }
-
-// probe gathers the answers for the given sessions. It must NOT be called with
-// s.mu held; it takes the manifest's own lock to resolve overrides, and does
-// network I/O.
-func (s *Server) probe(sessions []cnd.Session) probes {
-	out := probes{links: map[string]cnd.Links{}, photos: map[string]bool{}}
-	for _, sess := range sessions {
-		// Rewrite applies an image override, which is what the photo answer is
-		// about; it takes the manifest's lock, never s.mu.
-		rewritten := s.opts.Set.Rewrite(sess)
-		for i, sp := range sess.Talk.Speakers {
-			if sp.Slug == "" {
-				continue
-			}
-			if _, done := out.links[sp.Slug]; !done {
-				out.links[sp.Slug] = s.speakerLinks(sp)
-			}
-			out.photos[sp.Slug] = s.hasPhoto(drawnSpeaker(rewritten, i, sp))
+// probe gathers the answers for the given talks. It must NOT be called with
+// s.mu held: it does network I/O. Resolving the talks first is what fetched
+// their speakers' handles, so those are cached by the time a view is built.
+func (s *Server) probe(talks []promo.Talk) probes {
+	out := probes{photos: map[string]bool{}}
+	for _, t := range talks {
+		for _, sp := range t.Speakers {
+			out.photos[sp.Image] = s.hasPhoto(sp.Image)
 		}
 	}
 	return out
 }
 
-// hasPhoto reports whether a speaker's photo can be fetched, once per image.
-func (s *Server) hasPhoto(sp cnd.Speaker) bool {
-	if sp.Image == "" {
+// hasPhoto reports whether a photo can be fetched, once per image.
+func (s *Server) hasPhoto(image string) bool {
+	if image == "" {
 		return false
 	}
 	s.photoMu.Lock()
-	ok, seen := s.photos[sp.Image]
+	ok, seen := s.photos[image]
 	s.photoMu.Unlock()
 	if seen {
 		return ok
 	}
 
-	ok = s.renderer.HasPhoto(sp)
+	ok = s.renderer.HasPhoto(image)
 
 	s.photoMu.Lock()
-	s.photos[sp.Image] = ok
+	s.photos[image] = ok
 	s.photoMu.Unlock()
 	return ok
 }
 
-// effectiveSpeaker is what the card and copy actually use, which is what the
-// form's inputs are pre-filled with: the correction where there is one,
-// otherwise the value the tool found.
-//
-// Name, role line and photo are taken from the DRAWN speaker rather than
-// recomposed here: that is the speaker the card was drawn from, so the field
-// cannot show something the artwork does not. It matters most for the role
-// line, which the card composes from an employer and job override — showing
-// the upstream text there while the card said something else was precisely the
-// drift this is meant to remove.
-func effectiveSpeaker(base manifest.SpeakerSpec, drawn cnd.Speaker,
-	override manifest.SpeakerSpec) manifest.SpeakerSpec {
-	spec := override.Overlay(base)
-	spec.Name, spec.Title, spec.Image = drawn.Name, drawn.Title, drawn.Image
-	return spec
-}
-
-// drawnSpeaker pairs a submitted speaker with the rewritten one the card was
-// drawn from. Rewrite preserves order and length, so the indices line up.
-func drawnSpeaker(rewritten cnd.Session, i int, submitted cnd.Speaker) cnd.Speaker {
-	if i < len(rewritten.Talk.Speakers) {
-		return rewritten.Talk.Speakers[i]
-	}
-	return submitted
-}
-
 // buildViewLocked assembles a talk's view. Callers must hold s.mu, and must
 // have gathered p outside it.
-func (s *Server) buildViewLocked(sess cnd.Session, size string, p probes) talkView {
-	set := s.opts.Set
-	rewritten := set.Rewrite(sess)
-	overrides := set.Overrides()
-
+func (s *Server) buildViewLocked(t promo.Talk, size string, p probes) talkView {
 	view := talkView{
-		Session: rewritten,
+		Talk:    t,
 		Size:    size,
-		CardURL: fmt.Sprintf("/card/%s?size=%s&rev=%d", sess.Talk.ID, size, s.rev),
-		Hidden:  set.Hidden(sess.Talk.ID),
+		CardURL: fmt.Sprintf("/card/%s?size=%s&rev=%d", t.ID, size, s.rev),
 	}
-	view.Talk, _ = set.Talk(sess.Talk.ID)
-	view.SubmittedTitle = sess.Talk.Title
-
-	language := s.cardLanguage(sess.Talk.ID)
-	in := post.Input{Conference: s.opts.Program.Conference, Session: rewritten, Language: language}
-	for i, sp := range sess.Talk.Speakers {
-		links := overrides.LinksFor(sp, p.linksFor(sp.Slug))
-		role := overrides.RoleFor(sp)
-		override, _ := set.Speaker(sp.Slug)
-
-		// Two versions of the same speaker, used for different things.
-		//
-		// The FORM shows the original: its placeholders are what the CMS says,
-		// which is what an override is being compared against.
-		//
-		// The draft COPY uses the rewritten speaker, because that is who the
-		// post is about. Building it from the original left a corrected name on
-		// the card but not in the draft beside it, which is exactly the drift
-		// this view model exists to prevent.
-		drawn := drawnSpeaker(rewritten, i, sp)
-
-		base := manifest.Baseline(sp, p.linksFor(sp.Slug))
-		view.Speakers = append(view.Speakers, speakerView{
-			Speaker:   sp,
-			Override:  override,
-			Effective: effectiveSpeaker(base, drawn, override),
-			Guessed:   role.Guessed,
-			HasPhoto:  p.photoFor(sp.Slug),
-		})
-		in.Speakers = append(in.Speakers, post.Speaker{Speaker: drawn, Role: role, Links: links})
+	view.Override, _ = s.opts.Set.Talk(t.ID)
+	for _, sp := range t.Speakers {
+		view.Speakers = append(view.Speakers, speakerView{Speaker: sp, HasPhoto: p.photos[sp.Image]})
 	}
 
-	view.Language = in.Language.Resolve(rewritten.Talk.Title, rewritten.Talk.Abstract)
-	view.Detected = lang.Detect(rewritten.Talk.Title, rewritten.Talk.Abstract)
-
+	in := post.Input{Conference: s.opts.Program.Conference, Talk: t}
 	view.Drafts = []draftView{
 		{Draft: post.LinkedIn(in)},
 		{Draft: post.Bluesky(in), Limit: post.BlueskyLimit},
@@ -621,9 +552,7 @@ func (s *Server) buildViewLocked(sess cnd.Session, size string, p probes) talkVi
 	// Inspect, not Card: the warnings come from the text layout, and a full
 	// render here would fetch a photo and base64 two fonts for every row on the
 	// page — under this lock.
-	if res, err := // The card shares the copy's language: a Norwegian talk joins its
-		// speakers with "og" on the image too.
-		s.renderer.Inspect(s.opts.Program.Conference, rewritten, size, language); err == nil {
+	if res, err := s.renderer.Inspect(s.opts.Program.Conference, t, size); err == nil {
 		if res.EmojiFallback {
 			view.Warnings = append(view.Warnings,
 				"contains emoji: renders in browsers, but Inkscape and librsvg leave a gap")
@@ -643,30 +572,12 @@ func (s *Server) buildViewLocked(sess cnd.Session, size string, p probes) talkVi
 func (s *Server) exporter(sizes []string) *export.Exporter {
 	return &export.Exporter{
 		Renderer:     s.renderer,
-		Set:          s.opts.Set,
-		Program:      s.opts.Program,
-		Language:     s.opts.Language,
+		Resolver:     s.resolver,
 		Formats:      s.opts.Formats,
 		Sizes:        sizes,
 		RasterWidth:  s.opts.RasterWidth,
 		JPEGQuality:  s.opts.JPEGQuality,
-		LinksFor:     s.speakerLinks,
 		Converter:    s.converter,
 		HasConverter: s.hasConverter,
 	}
-}
-
-// pickNonEmpty is the first non-empty of the two.
-func pickNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
-// cardLanguage resolves the wording a talk's card and copy should use: its own
-// override where there is one, otherwise the server default, otherwise
-// detection.
-func (s *Server) cardLanguage(talkID string) lang.Language {
-	return s.opts.Set.LanguageOr(talkID, s.opts.Language)
 }

@@ -48,11 +48,11 @@ var loadFixture = sync.OnceValues(func() (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	sessions, err := decodeSessions(flight, rows)
+	talks, err := decodeTalks(flight, rows)
 	if err != nil {
 		return nil, err
 	}
-	return &Program{Conference: conf, Sessions: sessions}, nil
+	return &Program{Conference: conf, Talks: talks}, nil
 })
 
 func fixture(t *testing.T) *Program {
@@ -96,10 +96,10 @@ func TestDecodeConference(t *testing.T) {
 	}
 }
 
-func TestDecodeSessions(t *testing.T) {
+func TestDecodeTalks(t *testing.T) {
 	p := fixture(t)
 
-	if got := len(p.Sessions); got != 36 {
+	if got := len(p.Talks); got != 36 {
 		t.Errorf("sessions = %d, want 36", got)
 	}
 	if got := len(p.Speakers()); got != 49 {
@@ -107,19 +107,19 @@ func TestDecodeSessions(t *testing.T) {
 	}
 
 	days := map[int]string{}
-	for _, s := range p.Sessions {
-		days[s.Day] = s.Date
-		if s.Talk.Title == "" {
+	for _, s := range p.Talks {
+		days[s.Schedule.Day] = s.Schedule.Date
+		if s.Title == "" {
 			t.Error("session with empty talk title got through")
 		}
-		if s.Talk.ID == "" {
-			t.Errorf("talk %q has no id", s.Talk.Title)
+		if s.ID == "" {
+			t.Errorf("talk %q has no id", s.Title)
 		}
-		if len(s.Talk.Speakers) == 0 {
-			t.Errorf("talk %q has no speakers", s.Talk.Title)
+		if len(s.Speakers) == 0 {
+			t.Errorf("talk %q has no speakers", s.Title)
 		}
-		if s.Track == "" {
-			t.Errorf("talk %q has no track", s.Talk.Title)
+		if s.Schedule.Track == "" {
+			t.Errorf("talk %q has no track", s.Title)
 		}
 	}
 	if days[1] != "2026-10-26" || days[2] != "2026-10-27" {
@@ -131,16 +131,16 @@ func TestDecodeSessions(t *testing.T) {
 // text in a rendered promo.
 func TestNoUnresolvedReferences(t *testing.T) {
 	p := fixture(t)
-	for _, s := range p.Sessions {
+	for _, s := range p.Talks {
 		for _, field := range []struct{ name, val string }{
-			{"title", s.Talk.Title},
-			{"abstract", s.Talk.Abstract},
+			{"title", s.Title},
+			{"abstract", s.Abstract},
 		} {
 			if strings.HasPrefix(field.val, "$") || strings.Contains(field.val, "\"$") {
-				t.Errorf("talk %q %s holds a reference: %.60q", s.Talk.Title, field.name, field.val)
+				t.Errorf("talk %q %s holds a reference: %.60q", s.Title, field.name, field.val)
 			}
 		}
-		for _, sp := range s.Talk.Speakers {
+		for _, sp := range s.Speakers {
 			if strings.HasPrefix(sp.Name, "$") || strings.HasPrefix(sp.Title, "$") {
 				t.Errorf("speaker %q holds a reference (title %q)", sp.Name, sp.Title)
 			}
@@ -154,17 +154,17 @@ func TestAbstractsAreFlattenedPlainText(t *testing.T) {
 	p := fixture(t)
 
 	withAbstract := 0
-	for _, s := range p.Sessions {
-		if s.Talk.Abstract == "" {
+	for _, s := range p.Talks {
+		if s.Abstract == "" {
 			continue
 		}
 		withAbstract++
-		if strings.Contains(s.Talk.Abstract, `"_type"`) || strings.Contains(s.Talk.Abstract, `"_key"`) {
-			t.Errorf("talk %q abstract still holds Portable Text JSON", s.Talk.Title)
+		if strings.Contains(s.Abstract, `"_type"`) || strings.Contains(s.Abstract, `"_key"`) {
+			t.Errorf("talk %q abstract still holds Portable Text JSON", s.Title)
 		}
 	}
 	if withAbstract < 30 {
-		t.Errorf("only %d/%d talks got an abstract", withAbstract, len(p.Sessions))
+		t.Errorf("only %d/%d talks got an abstract", withAbstract, len(p.Talks))
 	}
 
 	// The Norwegian workshop's abstract is assembled from a $ref mid-paragraph;
@@ -173,15 +173,15 @@ func TestAbstractsAreFlattenedPlainText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(s.Talk.Abstract, "digital suverenitet") {
-		t.Errorf("abstract missing text from the resolved reference:\n%.300s", s.Talk.Abstract)
+	if !strings.Contains(s.Abstract, "digital suverenitet") {
+		t.Errorf("abstract missing text from the resolved reference:\n%.300s", s.Abstract)
 	}
 }
 
-func TestSpeakerImageSource(t *testing.T) {
+func TestImageSourceOf(t *testing.T) {
 	// The CMS CDN is the only host that understands the transform parameters.
 	cms := Speaker{Image: "https://cdn.sanity.io/images/mvzwvw14/production/abc-740x827.png"}
-	got := cms.ImageSource(600)
+	got := ImageSourceOf(cms.Image, 600)
 	if want := cms.Image + "?w=600&h=600&fit=crop&fm=jpg&q=82"; got.URL != want {
 		t.Errorf("CMS URL = %q, want %q", got.URL, want)
 	}
@@ -190,7 +190,7 @@ func TestSpeakerImageSource(t *testing.T) {
 	}
 	// An URL that already carries a query must gain "&", not a second "?".
 	q := Speaker{Image: "https://cdn.sanity.io/x.png?rect=1,2,3,4"}
-	if g := q.ImageSource(600); !strings.Contains(g.URL, "?rect=1,2,3,4&w=600") {
+	if g := ImageSourceOf(q.Image, 600); !strings.Contains(g.URL, "?rect=1,2,3,4&w=600") {
 		t.Errorf("existing query = %q", g.URL)
 	}
 
@@ -201,7 +201,7 @@ func TestSpeakerImageSource(t *testing.T) {
 		"https://avatars.githubusercontent.com/u/12345?v=4",
 		"https://example.com/photo.jpg",
 	} {
-		g := Speaker{Image: raw}.ImageSource(600)
+		g := ImageSourceOf(raw, 600)
 		if g.URL != raw {
 			t.Errorf("ImageSource(%q).URL = %q, want it untouched", raw, g.URL)
 		}
@@ -213,7 +213,7 @@ func TestSpeakerImageSource(t *testing.T) {
 		"photos/dario.png":      "photos/dario.png",
 		"file:///tmp/photo.jpg": "/tmp/photo.jpg",
 	} {
-		g := Speaker{Image: in}.ImageSource(600)
+		g := ImageSourceOf(in, 600)
 		if g.Path != want {
 			t.Errorf("ImageSource(%q).Path = %q, want %q", in, g.Path, want)
 		}
@@ -222,7 +222,7 @@ func TestSpeakerImageSource(t *testing.T) {
 		}
 	}
 
-	if g := (Speaker{}).ImageSource(600); !g.Empty() {
+	if g := ImageSourceOf("", 600); !g.Empty() {
 		t.Errorf("no photo = %+v, want empty", g)
 	}
 }
@@ -249,17 +249,17 @@ func TestFindSelectorTiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got.Talk.Title, "brødrister") {
-		t.Errorf("slug selector found %q", got.Talk.Title)
+	if !strings.Contains(got.Title, "brødrister") {
+		t.Errorf("slug selector found %q", got.Title)
 	}
 
 	// Talk id prefix beats everything else.
-	byID, err := p.FindOne(got.Talk.ID[:8])
+	byID, err := p.FindOne(got.ID[:8])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if byID.Talk.ID != got.Talk.ID {
-		t.Errorf("id selector found %q", byID.Talk.Title)
+	if byID.ID != got.ID {
+		t.Errorf("id selector found %q", byID.Title)
 	}
 
 	// Title substring, case-insensitively.
@@ -293,18 +293,18 @@ func TestFindOneReportsAmbiguity(t *testing.T) {
 func TestFileStemIsScheduleOrdered(t *testing.T) {
 	p := fixture(t)
 	seen := map[string]string{}
-	for _, s := range p.Sessions {
+	for _, s := range p.Talks {
 		stem := s.FileStem()
 		if stem == "" {
-			t.Errorf("empty stem for %q", s.Talk.Title)
+			t.Errorf("empty stem for %q", s.Title)
 		}
 		if strings.ContainsAny(stem, "/ .") {
 			t.Errorf("stem %q unsafe as a filename", stem)
 		}
 		if prev, dup := seen[stem]; dup {
-			t.Errorf("stem %q collides: %q and %q", stem, prev, s.Talk.Title)
+			t.Errorf("stem %q collides: %q and %q", stem, prev, s.Title)
 		}
-		seen[stem] = s.Talk.Title
+		seen[stem] = s.Title
 		if !strings.HasPrefix(stem, "d1-") && !strings.HasPrefix(stem, "d2-") {
 			t.Errorf("stem %q does not lead with the day", stem)
 		}
@@ -312,15 +312,15 @@ func TestFileStemIsScheduleOrdered(t *testing.T) {
 }
 
 func TestSpeakerNames(t *testing.T) {
-	mk := func(names ...string) Session {
+	mk := func(names ...string) Talk {
 		var sp []Speaker
 		for _, n := range names {
 			sp = append(sp, Speaker{Name: n})
 		}
-		return Session{Talk: Talk{Speakers: sp}}
+		return Talk{Speakers: sp}
 	}
 	for _, tc := range []struct {
-		in   Session
+		in   Talk
 		and  string
 		want string
 	}{
@@ -360,7 +360,7 @@ func TestShortTrack(t *testing.T) {
 		"Keynote":                     "Keynote",
 		"":                            "",
 	} {
-		if got := (Session{Track: in}).ShortTrack(); got != want {
+		if got := (Slot{Track: in}).ShortTrack(); got != want {
 			t.Errorf("ShortTrack(%q) = %q, want %q", in, got, want)
 		}
 	}
@@ -424,8 +424,8 @@ func TestFindMatchesTransliteratedSpeakerSlug(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ASCII form of a Norwegian slug did not match: %v", err)
 	}
-	if ascii.Talk.ID != exact.Talk.ID {
-		t.Errorf("ASCII selector found %q, want %q", ascii.Talk.Title, exact.Talk.Title)
+	if ascii.ID != exact.ID {
+		t.Errorf("ASCII selector found %q, want %q", ascii.Title, exact.Title)
 	}
 }
 

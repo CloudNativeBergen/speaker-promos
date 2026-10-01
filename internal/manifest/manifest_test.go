@@ -64,16 +64,6 @@ func TestLoadSample(t *testing.T) {
 	if tk.DisplayTitle != "Kort tittel" || tk.Hidden {
 		t.Errorf("talk spec = %+v", tk)
 	}
-
-	// The post package is what resolves overrides, so the bridge to it matters
-	// as much as the parse.
-	role := set.Overrides().RoleFor(cnd.Speaker{Slug: "dario-haaland", Title: "Bysten Labs"})
-	if role.Employer != "Bysten Labs" || role.Job != "Infrastructure Engineer" {
-		t.Errorf("RoleFor = %+v", role)
-	}
-	if role.Guessed {
-		t.Error("an overridden employer must not be reported as guessed")
-	}
 }
 
 func TestMissingFileIsEmpty(t *testing.T) {
@@ -248,50 +238,13 @@ func TestSkipsEmptyDocuments(t *testing.T) {
 	}
 }
 
-func TestApplyRewritesAndFilters(t *testing.T) {
-	set := New(tempPath(t))
-	if err := set.SetTalk("keep", TalkSpec{DisplayTitle: "Short Title"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := set.SetTalk("gone", TalkSpec{Hidden: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	in := []cnd.Session{
-		{Talk: cnd.Talk{ID: "keep", Title: "A Very Long Original Title"}},
-		{Talk: cnd.Talk{ID: "gone", Title: "Cancelled"}},
-		{Talk: cnd.Talk{ID: "other", Title: "Untouched"}},
-	}
-	got := set.Apply(in)
-	if len(got) != 2 {
-		t.Fatalf("Apply returned %d sessions; want 2", len(got))
-	}
-	if got[0].Talk.Title != "Short Title" {
-		t.Errorf("title = %q; want the display title", got[0].Talk.Title)
-	}
-	if got[1].Talk.Title != "Untouched" {
-		t.Errorf("title = %q; want it unchanged", got[1].Talk.Title)
-	}
-	// Apply must not mutate the caller's slice.
-	if in[0].Talk.Title != "A Very Long Original Title" {
-		t.Errorf("Apply mutated its input: %q", in[0].Talk.Title)
-	}
-	// An explicit selection is rewritten but not filtered.
-	if s := set.Rewrite(in[1]); s.Talk.Title != "Cancelled" {
-		t.Errorf("Rewrite of a hidden talk = %q", s.Talk.Title)
-	}
-	if !set.Hidden("gone") || set.Hidden("keep") {
-		t.Error("Hidden disagrees with the specs")
-	}
-}
-
 // The field table is what every field-by-field walk now goes through — the
 // import merge, the form's values, and the two compositions below — so it has
 // to cover every field a spec has.
 func TestSpecFieldTableCoversEveryField(t *testing.T) {
 	full := SpeakerSpec{
 		Name: "n", Employer: "e", Job: "j", Title: "t", Image: "i",
-		Links: Links{LinkedIn: "l", Bluesky: "b", X: "x", GitHub: "g"},
+		Links: cnd.Links{LinkedIn: "l", Bluesky: "b", X: "x", GitHub: "g"},
 	}
 	var rebuilt SpeakerSpec
 	for _, field := range SpeakerFields() {
@@ -321,16 +274,16 @@ func TestSpecFieldTableCoversEveryField(t *testing.T) {
 func TestOverlayAndDiff(t *testing.T) {
 	base := SpeakerSpec{
 		Name: "Dario Haaland", Employer: "Bysten Labs", Job: "Engineer",
-		Links: Links{Bluesky: "scraped.example"},
+		Links: cnd.Links{Bluesky: "scraped.example"},
 	}
-	override := SpeakerSpec{Employer: "Bysten Labs AS", Links: Links{Bluesky: "dario.example"}}
+	override := SpeakerSpec{Employer: "Bysten Labs AS", Links: cnd.Links{Bluesky: "dario.example"}}
 
 	// Overlay is what the form shows: the correction where there is one, the
 	// found value everywhere else.
 	got := override.Overlay(base)
 	want := SpeakerSpec{
 		Name: "Dario Haaland", Employer: "Bysten Labs AS", Job: "Engineer",
-		Links: Links{Bluesky: "dario.example"},
+		Links: cnd.Links{Bluesky: "dario.example"},
 	}
 	if got != want {
 		t.Errorf("Overlay =\n %+v\nwant %+v", got, want)
@@ -344,94 +297,6 @@ func TestOverlayAndDiff(t *testing.T) {
 	// An empty field is "no opinion", not "clear it".
 	if got := (SpeakerSpec{}).Diff(base); !got.empty() {
 		t.Errorf("an empty submission recorded %+v", got)
-	}
-}
-
-func TestRoleTitle(t *testing.T) {
-	for _, tc := range []struct {
-		spec SpeakerSpec
-		want string
-	}{
-		// The upstream convention, so a corrected role reads like an
-		// uncorrected one.
-		{SpeakerSpec{Job: "Senior Platform Engineer", Employer: "Vestbit"}, "Senior Platform Engineer at Vestbit"},
-		{SpeakerSpec{Employer: "Bysten Labs"}, "Bysten Labs"},
-		{SpeakerSpec{Job: "Utvikler"}, "Utvikler"},
-		// Nothing said about the role: the caller keeps the upstream value.
-		{SpeakerSpec{}, ""},
-		{SpeakerSpec{Links: Links{Bluesky: "a.example"}}, ""},
-	} {
-		if got := tc.spec.RoleTitle(); got != tc.want {
-			t.Errorf("RoleTitle(%+v) = %q, want %q", tc.spec, got, tc.want)
-		}
-	}
-}
-
-// A speaker override has to reach the CARD, not just the copy: the reason to
-// correct an employer is that the graphic says the wrong thing.
-func TestRewriteAppliesSpeakerOverrideToCardTitle(t *testing.T) {
-	set := New(tempPath(t))
-	if err := set.SetSpeaker("dario-haaland", SpeakerSpec{
-		Employer: "Bysten Labs AS",
-		Job:      "Infrastructure Engineer",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	sess := cnd.Session{Talk: cnd.Talk{
-		ID: "talk-1",
-		Speakers: []cnd.Speaker{
-			{Slug: "dario-haaland", Name: "Dario Haaland", Title: "Bysten Labs"},
-			{Slug: "untouched", Name: "Someone Else", Title: "Dev at Acme"},
-		},
-	}}
-
-	got := set.Rewrite(sess)
-	if want := "Infrastructure Engineer at Bysten Labs AS"; got.Talk.Speakers[0].Title != want {
-		t.Errorf("speaker 0 title = %q, want %q", got.Talk.Speakers[0].Title, want)
-	}
-	// A speaker with no override keeps the upstream value.
-	if got.Talk.Speakers[1].Title != "Dev at Acme" {
-		t.Errorf("speaker 1 title = %q, want it untouched", got.Talk.Speakers[1].Title)
-	}
-}
-
-// Regression: cnd.Session is a value but its Speakers slice shares a backing
-// array with the Program, so a speaker on two talks has one array. Writing a
-// rewritten title in place leaked one session's override into every other
-// session that speaker appeared in.
-func TestRewriteDoesNotMutateTheSharedSpeakerSlice(t *testing.T) {
-	set := New(tempPath(t))
-	if err := set.SetSpeaker("shared", SpeakerSpec{Employer: "Corrected"}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Both sessions share one backing array, as they do when they come from a
-	// single Program.
-	speakers := []cnd.Speaker{{Slug: "shared", Name: "Shared Speaker", Title: "Original"}}
-	first := cnd.Session{Talk: cnd.Talk{ID: "talk-1", Speakers: speakers}}
-	second := cnd.Session{Talk: cnd.Talk{ID: "talk-2", Speakers: speakers}}
-
-	rewritten := set.Rewrite(first)
-	if rewritten.Talk.Speakers[0].Title != "Corrected" {
-		t.Fatalf("rewrite did not apply: %q", rewritten.Talk.Speakers[0].Title)
-	}
-	if speakers[0].Title != "Original" {
-		t.Errorf("the shared backing array was mutated: %q", speakers[0].Title)
-	}
-	if second.Talk.Speakers[0].Title != "Original" {
-		t.Errorf("the override leaked into another session: %q", second.Talk.Speakers[0].Title)
-	}
-}
-
-func TestRewriteWithoutOverridesReturnsInputUnchanged(t *testing.T) {
-	set := New(tempPath(t))
-	speakers := []cnd.Speaker{{Slug: "nobody", Title: "Original"}}
-	sess := cnd.Session{Talk: cnd.Talk{ID: "talk-1", Title: "Kept", Speakers: speakers}}
-
-	got := set.Rewrite(sess)
-	if got.Talk.Title != "Kept" || got.Talk.Speakers[0].Title != "Original" {
-		t.Errorf("unchanged session was altered: %+v", got.Talk)
 	}
 }
 
@@ -485,39 +350,6 @@ spec:
 	}
 }
 
-// The image override has to reach the rendered speaker, and a relative path has
-// to resolve against the manifest rather than the working directory.
-func TestImageOverrideAppliesAndResolves(t *testing.T) {
-	path := tempPath(t)
-	set := New(path)
-	if err := set.SetSpeaker("dario-haaland", SpeakerSpec{Image: "photos/dario.jpg"}); err != nil {
-		t.Fatal(err)
-	}
-	sess := cnd.Session{Talk: cnd.Talk{ID: "t", Speakers: []cnd.Speaker{
-		{Slug: "dario-haaland", Name: "Dario Haaland"},
-		{Slug: "other", Name: "Someone Else", Image: "https://example.com/keep.jpg"},
-	}}}
-
-	got := set.Rewrite(sess)
-	want := filepath.Join(filepath.Dir(path), "photos/dario.jpg")
-	if got.Talk.Speakers[0].Image != want {
-		t.Errorf("image = %q, want %q resolved against the manifest", got.Talk.Speakers[0].Image, want)
-	}
-	if got.Talk.Speakers[1].Image != "https://example.com/keep.jpg" {
-		t.Errorf("an unrelated speaker's image changed: %q", got.Talk.Speakers[1].Image)
-	}
-
-	// An URL and an absolute path are passed through untouched.
-	for _, image := range []string{"https://example.com/a.jpg", "/tmp/a.jpg"} {
-		if err := set.SetSpeaker("dario-haaland", SpeakerSpec{Image: image}); err != nil {
-			t.Fatal(err)
-		}
-		if got := set.Rewrite(sess).Talk.Speakers[0].Image; got != image {
-			t.Errorf("image %q became %q", image, got)
-		}
-	}
-}
-
 // An image-only override is a real override, so it must survive a save/load
 // cycle rather than being pruned as empty.
 func TestImageOnlyOverrideRoundTrips(t *testing.T) {
@@ -533,67 +365,6 @@ func TestImageOnlyOverrideRoundTrips(t *testing.T) {
 	spec, ok := reloaded.Speaker("dario-haaland")
 	if !ok || spec.Image != "photos/dario.jpg" {
 		t.Errorf("reloaded = %+v, ok=%v", spec, ok)
-	}
-}
-
-// A name is typed by the speaker into a CMS, so accents go missing. Correcting
-// it must reach the card and the copy but must NOT change the slug, which is
-// the speaker's identity and drives folder names and selectors.
-func TestNameOverrideDoesNotChangeIdentity(t *testing.T) {
-	path := tempPath(t)
-	set := New(path)
-	if err := set.SetSpeaker("aurelie-vache", SpeakerSpec{Name: "Aurélie Vache"}); err != nil {
-		t.Fatal(err)
-	}
-	sess := cnd.Session{Day: 2, StartTime: "15:30", Talk: cnd.Talk{
-		ID: "t", Title: "Understanding Kubernetes",
-		Speakers: []cnd.Speaker{{Slug: "aurelie-vache", Name: "Aurelie Vache"}},
-	}}
-	before := sess.FileStem()
-
-	got := set.Rewrite(sess)
-	if got.Talk.Speakers[0].Name != "Aurélie Vache" {
-		t.Errorf("name = %q", got.Talk.Speakers[0].Name)
-	}
-	if got.Talk.Speakers[0].Slug != "aurelie-vache" {
-		t.Errorf("slug changed to %q", got.Talk.Speakers[0].Slug)
-	}
-	if after := got.FileStem(); after != before {
-		t.Errorf("file stem changed from %q to %q", before, after)
-	}
-}
-
-// Plenty of real titles do not fit "<job> at <employer>", so an explicit title
-// sets the role line verbatim and wins over both.
-func TestTitleOverrideWinsOverJobAndEmployer(t *testing.T) {
-	verbatim := "Maintainer, Principal Open source Architect, Co-Chair CNCF TAG Infrastructure"
-	for _, tc := range []struct {
-		spec SpeakerSpec
-		want string
-	}{
-		{SpeakerSpec{Title: verbatim}, verbatim},
-		{SpeakerSpec{Title: verbatim, Job: "Engineer", Employer: "Vestbit"}, verbatim},
-		{SpeakerSpec{Job: "Engineer", Employer: "Vestbit"}, "Engineer at Vestbit"},
-		{SpeakerSpec{Name: "Only a name"}, ""},
-	} {
-		if got := tc.spec.RoleTitle(); got != tc.want {
-			t.Errorf("RoleTitle(%+v) = %q, want %q", tc.spec, got, tc.want)
-		}
-	}
-
-	// Employer still drives what the POST names, so a title alone changes the
-	// card without silencing the employer guess.
-	path := tempPath(t)
-	set := New(path)
-	if err := set.SetSpeaker("a", SpeakerSpec{Title: verbatim}); err != nil {
-		t.Fatal(err)
-	}
-	role := set.Overrides().RoleFor(cnd.Speaker{Slug: "a", Title: "Dev at Acme"})
-	if role.Employer != "Acme" {
-		t.Errorf("employer = %q, want it still guessed from upstream", role.Employer)
-	}
-	if !role.Guessed {
-		t.Error("a title-only override should leave the employer marked as guessed")
 	}
 }
 

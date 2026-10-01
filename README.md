@@ -113,8 +113,9 @@ editing a line rather than knowing the field exists.
 
 `promo.yaml` is two things in one file. A `TalkInfo` object records everything the tool knew
 when it produced the folder — the conference, the slot, track, format, level, topics,
-abstract, and each speaker's resolved employer, handles, profile URL and whether the card
-got a real photo or fell back to initials. Below it sit the editable `SpeakerOverride` and
+abstract, and for each speaker the website's own title next to the role line the card
+printed, the resolved employer, handles, profile URL and whether the card got a real photo
+or fell back to initials. Below it sit the editable `SpeakerOverride` and
 `TalkOverride` objects, pre-filled with the values the cards actually used: the correction
 where you made one, the guess otherwise.
 
@@ -370,7 +371,7 @@ correction made to data the tool guessed.
 apiVersion: promo.cloudnativedays.no/v1alpha1
 kind: SpeakerOverride
 metadata:
-  name: dario-haaland             # speaker slug, as printed by `promo list`
+  name: dario-haaland             # speaker key: the slug, as printed by `promo list`
 spec:
   name: Aurélie Vache             # fixes what the CMS lost; the slug stays put
   employer: Bysten Labs
@@ -400,7 +401,8 @@ well as the copy — the card saying the wrong thing is usually why you are corr
 typed their own name, so accents go missing — `Aurelie` for `Aurélie` — and there is
 nowhere else to fix it. The slug is **not** derived from it: it stays the speaker's
 identity, so correcting a name does not rename the export folder or change what
-`promo list` tells you to type.
+`promo list` tells you to type. A speaker the CMS gave no slug is keyed by their name as
+submitted instead (`kyrre-havik`), which is likewise unaffected by correcting it.
 
 `title:` sets the card's role line verbatim instead of composing it from `job` and
 `employer`. Real titles often do not fit `<job> at <employer>` — *"Maintainer, Principal
@@ -478,17 +480,19 @@ removes an object once all of its fields are cleared.
 ```
 cmd/promo/          subcommands over stdlib flag
 internal/rsc/       flight extraction, row table, $ref resolution
-internal/cnd/       fetch + domain model; portable text; speaker-page links
+internal/cnd/       the website's model (talk, slot, speaker) and loading it; speaker-page links
 internal/cache/     on-disk HTTP cache
 internal/theme/     theme structs, YAML loading, embedded default-2026
 internal/layout/    font metrics, greedy wrap, size autofit
 internal/render/    SVG emitters (portrait, landscape)
 internal/lang/      language detection and per-language wording
 internal/textcase/  title-case and name capitalisation for the 🪄 buttons
+internal/promo/     resolves a talk against the manifest, handles and language — the one
+                    place corrections are applied; everything below reads its promo.Talk
 internal/post/      LinkedIn / Bluesky copy
 internal/raster/    SVG → PNG via an external tool, PNG → JPEG via stdlib
 internal/export/    per-talk bundles, shared by the CLI and the server
-internal/manifest/  override manifests (load, validate, save)
+internal/manifest/  override manifests (load, validate, save, import, bundle encoding)
 internal/web/       preview server, templates, vendored HTMX
 assets/fonts/       vendored OFL fonts + licences
 ```

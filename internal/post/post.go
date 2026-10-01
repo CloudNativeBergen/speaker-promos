@@ -6,18 +6,12 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
+	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
 // BlueskyLimit is the maximum length of a Bluesky post, in graphemes as Bluesky
 // counts them; runes are a close enough proxy for Latin text with URLs.
 const BlueskyLimit = 300
-
-// Speaker is one presenter with everything the copy needs about them.
-type Speaker struct {
-	cnd.Speaker
-	Role  Role
-	Links cnd.Links
-}
 
 // Draft is generated copy for one platform.
 type Draft struct {
@@ -31,19 +25,19 @@ type Draft struct {
 // Runes is the post's length as a platform would count it.
 func (d Draft) Runes() int { return len([]rune(d.Text)) }
 
-// Input is everything needed to draft copy for a session.
+// Input is everything needed to draft copy for a talk.
 type Input struct {
 	Conference cnd.Conference
-	Session    cnd.Session
-	Speakers   []Speaker
-	// Language selects the wording. The zero value is Auto, so an Input built
-	// without thinking about language still gets the talk's own.
-	Language lang.Language
+	// Talk is the talk as resolved, corrections and language included: the
+	// copy says what the card beside it says.
+	Talk promo.Talk
 }
 
-// lang resolves the language actually used for this input.
+// language is the wording the talk resolved to. A Talk from a Resolver is
+// never Auto; one built by hand is detected rather than defaulted, since an
+// English frame around a Norwegian abstract is what this exists to prevent.
 func (in Input) language() lang.Language {
-	return in.Language.Resolve(in.Session.Talk.Title, in.Session.Talk.Abstract)
+	return in.Talk.Language.Resolve(in.Talk.Title, in.Talk.Abstract)
 }
 
 // LinkedIn drafts a LinkedIn post.
@@ -56,19 +50,20 @@ func (in Input) language() lang.Language {
 func LinkedIn(in Input) Draft {
 	var d Draft
 	d.Platform = "linkedin"
-	s := in.Session
+	t := in.Talk
+	l := in.language()
 
 	var b strings.Builder
 	b.WriteString(hook(in))
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "%s\n", quoteTitle(s.Talk.Title, in.language()))
+	fmt.Fprintf(&b, "%s\n", quoteTitle(t.Title, l))
 
-	if teaser := cnd.FirstSentences(s.Talk.Abstract, 320); teaser != "" {
+	if teaser := cnd.FirstSentences(t.Abstract, 320); teaser != "" {
 		fmt.Fprintf(&b, "\n%s\n", teaser)
 	}
 
-	fmt.Fprintf(&b, "\n📅 %s · %s\n", s.TimeRange(), dayLabel(in.Conference, s, in.language()))
-	if track := s.ShortTrack(); track != "" {
+	fmt.Fprintf(&b, "\n📅 %s · %s\n", t.Schedule.TimeRange(), dayLabel(in.Conference, t.Schedule, l))
+	if track := t.Schedule.ShortTrack(); track != "" {
 		fmt.Fprintf(&b, "📍 %s\n", track)
 	}
 	if url := talkURL(in); url != "" {
@@ -92,7 +87,8 @@ func LinkedIn(in Input) Draft {
 func Bluesky(in Input) Draft {
 	var d Draft
 	d.Platform = "bluesky"
-	s := in.Session
+	t := in.Talk
+	l := in.language()
 
 	url := talkURL(in)
 	mentions := blueskyMentions(in)
@@ -100,7 +96,7 @@ func Bluesky(in Input) Draft {
 	// The post is built as head + optional middle + tail. The tail holds the
 	// mentions and the link, which are the parts that must never be cut, so
 	// they are reserved up front rather than trimmed off the end.
-	head := hook(in) + "\n\n" + quoteTitle(s.Talk.Title, in.language())
+	head := hook(in) + "\n\n" + quoteTitle(t.Title, l)
 	tail := ""
 	if mentions != "" {
 		tail += "\n\n" + mentions
@@ -109,7 +105,7 @@ func Bluesky(in Input) Draft {
 		tail += "\n" + url
 	}
 
-	slot := fmt.Sprintf("\n\n%s · %s", s.TimeRange(), dayLabel(in.Conference, s, in.language()))
+	slot := fmt.Sprintf("\n\n%s · %s", t.Schedule.TimeRange(), dayLabel(in.Conference, t.Schedule, l))
 	fits := func(parts ...string) bool {
 		return len([]rune(strings.Join(parts, ""))) <= BlueskyLimit
 	}
@@ -131,7 +127,7 @@ func Bluesky(in Input) Draft {
 	// variant from scratch previously dropped it.
 	mid := ""
 	if room := BlueskyLimit - len([]rune(head+slot+tail)) - 2; room > 60 {
-		if teaser := cnd.FirstSentences(s.Talk.Abstract, room); teaser != "" {
+		if teaser := cnd.FirstSentences(t.Abstract, room); teaser != "" {
 			if fits(head, "\n\n", teaser, slot, tail) {
 				mid = "\n\n" + teaser
 			}
@@ -157,8 +153,8 @@ func Bluesky(in Input) Draft {
 func hook(in Input) string {
 	w := in.language().Words()
 
-	names := make([]string, 0, len(in.Speakers))
-	for _, sp := range in.Speakers {
+	names := make([]string, 0, len(in.Talk.Speakers))
+	for _, sp := range in.Talk.Speakers {
 		name := sp.Name
 		if sp.Role.Employer != "" {
 			name += " (" + sp.Role.Employer + ")"
@@ -170,12 +166,12 @@ func hook(in Input) string {
 		who = w.Anonymous
 	}
 
-	plural := len(in.Speakers) > 1
+	plural := len(in.Talk.Speakers) > 1
 	verb := w.SpeakingSingular
 	if plural {
 		verb = w.SpeakingPlural
 	}
-	if strings.HasPrefix(in.Session.Talk.Format, "workshop") {
+	if in.Talk.IsWorkshop() {
 		verb = w.WorkshopSingular
 		if plural {
 			verb = w.WorkshopPlural
@@ -204,7 +200,7 @@ func quoteTitle(title string, l lang.Language) string {
 //
 // The names are looked up rather than taken from time.Format, which only knows
 // English.
-func dayLabel(conf cnd.Conference, s cnd.Session, l lang.Language) string {
+func dayLabel(conf cnd.Conference, s cnd.Slot, l lang.Language) string {
 	if d := parseDate(s.Date); d != nil {
 		w := l.Words()
 		return w.Date(w, *d)
@@ -231,7 +227,7 @@ func talkURL(in Input) string {
 // text — unlike LinkedIn.
 func blueskyMentions(in Input) string {
 	var out []string
-	for _, sp := range in.Speakers {
+	for _, sp := range in.Talk.Speakers {
 		if sp.Links.Bluesky != "" {
 			out = append(out, "@"+sp.Links.Bluesky)
 		}
@@ -247,7 +243,7 @@ func hashtags(in Input) string {
 	for _, t := range tags {
 		seen[strings.ToLower(t)] = true
 	}
-	for _, topic := range in.Session.Talk.Topics {
+	for _, topic := range in.Talk.Topics {
 		tag := "#" + hashtagify(topic)
 		if len(tag) > 1 && !seen[strings.ToLower(tag)] {
 			seen[strings.ToLower(tag)] = true
@@ -278,10 +274,12 @@ func hashtagify(s string) string {
 // notes collects things the user should verify before posting.
 func notes(in Input, platform string) []string {
 	var out []string
-	for _, sp := range in.Speakers {
+	for _, sp := range in.Talk.Speakers {
+		// Quoted from the website's title, which is what the guess was made
+		// from — not the role line, which a correction may have replaced.
 		if sp.Role.Guessed && sp.Role.Employer != "" {
 			out = append(out, fmt.Sprintf("employer for %s guessed as %q from %q — check it",
-				sp.Name, sp.Role.Employer, sp.Title))
+				sp.Name, sp.Role.Employer, sp.Source.Title))
 		}
 		if sp.Role.Employer == "" {
 			out = append(out, fmt.Sprintf("no employer known for %s", sp.Name))
@@ -304,7 +302,7 @@ func notes(in Input, platform string) []string {
 // mentions by hand.
 func Mentions(in Input) []string {
 	var out []string
-	for _, sp := range in.Speakers {
+	for _, sp := range in.Talk.Speakers {
 		var parts []string
 		if sp.Links.LinkedIn != "" {
 			parts = append(parts, sp.Links.LinkedIn)

@@ -30,13 +30,14 @@ type Speaker struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Slug string `json:"slug"`
-	// Title is free text from the speaker's profile and is wildly inconsistent
-	// across speakers: "Senior Platform Engineer at Vestbit", "Bysten Labs",
-	// "Utvikler hos Bergsdal Consulting", or empty. There is no structured
-	// employer field, so
-	// anything that needs an employer has to guess — see Employer in post copy.
+	// Title is the website's job title / tagline: free text from the speaker's
+	// profile, and wildly inconsistent across speakers: "Senior Platform
+	// Engineer at Vestbit", "Bysten Labs", "Utvikler hos Bergsdal Consulting",
+	// or empty. There is no structured employer field, so anything that needs
+	// an employer has to guess — see promo.ParseRole.
 	Title string `json:"title"`
-	// Image is a cdn.sanity.io URL. It accepts crop transforms; use ImageURL.
+	// Image is a cdn.sanity.io URL. It accepts crop transforms; use
+	// ImageSourceOf.
 	Image string `json:"image,omitempty"`
 }
 
@@ -60,15 +61,16 @@ type ImageSource struct {
 // Empty reports whether there is no photo to fetch.
 func (s ImageSource) Empty() bool { return s.URL == "" && s.Path == "" }
 
-// ImageSource resolves a speaker's photo for a square of the given size.
+// ImageSource resolves a photo reference — a CMS URL, any other URL, or a path
+// on disk — for a square of the given size.
 //
 // Transform parameters are added ONLY for the CMS CDN, which is the only host
 // that understands them. They used to be appended to every URL, which was
 // wrong in both directions: a GitHub avatar or LinkedIn photo silently ignored
 // them and came back at its own size, and an overridden photo on an arbitrary
 // host could be handed query parameters that mean something else there.
-func (s Speaker) ImageSource(size int) ImageSource {
-	image := strings.TrimSpace(s.Image)
+func ImageSourceOf(image string, size int) ImageSource {
+	image = strings.TrimSpace(image)
 	switch {
 	case image == "":
 		return ImageSource{}
@@ -92,23 +94,28 @@ func (s Speaker) ImageSource(size int) ImageSource {
 	}
 }
 
-// Talk is an accepted session.
+// Talk is an accepted talk and the slot it was given.
+//
+// The website calls the document a `talk` (a "proposal" in its TypeScript), and
+// attaches where it runs as `scheduleInfo`; Schedule mirrors that, so there is
+// one thing called a talk rather than a talk wrapped in a session.
 type Talk struct {
 	ID string `json:"id"`
 	// Title is presenter-authored and may contain emoji, which no text font
 	// covers. See internal/layout for how that is handled.
 	Title string `json:"title"`
-	// Abstract is the talk description flattened to plain text.
+	// Abstract is the talk's `description` flattened to plain text.
 	Abstract string    `json:"abstract,omitempty"`
 	Format   string    `json:"format,omitempty"` // e.g. "workshop_120", "presentation_25"
 	Level    string    `json:"level,omitempty"`  // e.g. "beginner", "intermediate", "advanced"
+	Status   string    `json:"status,omitempty"` // e.g. "confirmed", "accepted"
 	Topics   []string  `json:"topics,omitempty"`
 	Speakers []Speaker `json:"speakers"`
+	Schedule Slot      `json:"schedule"`
 }
 
-// Session is a talk placed in the schedule.
-type Session struct {
-	Talk      Talk   `json:"talk"`
+// Slot is where a talk sits in the schedule: the website's `scheduleInfo`.
+type Slot struct {
 	Date      string `json:"date"` // ISO date of the day it runs
 	Day       int    `json:"day"`  // 1-based day index within the conference
 	Track     string `json:"track"`
@@ -116,20 +123,20 @@ type Session struct {
 	EndTime   string `json:"endTime"`
 }
 
-// Program is a conference and its scheduled sessions.
+// Program is a conference and its scheduled talks.
 type Program struct {
 	Conference Conference `json:"conference"`
-	Sessions   []Session  `json:"sessions"`
+	Talks      []Talk     `json:"talks"`
 }
 
-// Session returns the session for a talk id.
-func (p Program) Session(id string) (Session, bool) {
-	for _, s := range p.Sessions {
-		if s.Talk.ID == id {
-			return s, true
+// Talk returns a talk by id.
+func (p Program) Talk(id string) (Talk, bool) {
+	for _, t := range p.Talks {
+		if t.ID == id {
+			return t, true
 		}
 	}
-	return Session{}, false
+	return Talk{}, false
 }
 
 // Speakers returns every distinct speaker in the program, in first-appearance
@@ -137,12 +144,9 @@ func (p Program) Session(id string) (Session, bool) {
 func (p Program) Speakers() []Speaker {
 	seen := make(map[string]bool)
 	var out []Speaker
-	for _, s := range p.Sessions {
-		for _, sp := range s.Talk.Speakers {
-			key := sp.Slug
-			if key == "" {
-				key = sp.ID
-			}
+	for _, t := range p.Talks {
+		for _, sp := range t.Speakers {
+			key := sp.Key()
 			if !seen[key] {
 				seen[key] = true
 				out = append(out, sp)
@@ -152,15 +156,15 @@ func (p Program) Speakers() []Speaker {
 	return out
 }
 
-// SpeakerNames renders a session's speakers as prose: "A", "A and B", or
+// SpeakerNames renders a talk's speakers as prose: "A", "A and B", or
 // "A, B and C", using the given conjunction.
 //
 // The conjunction is a parameter rather than a constant because a Norwegian
 // talk's card should read "A og B". It is passed in rather than resolved here
 // so that the domain model stays free of presentation concerns.
-func (s Session) SpeakerNames(and string) string {
-	names := make([]string, 0, len(s.Talk.Speakers))
-	for _, sp := range s.Talk.Speakers {
+func (t Talk) SpeakerNames(and string) string {
+	names := make([]string, 0, len(t.Speakers))
+	for _, sp := range t.Speakers {
 		if sp.Name != "" {
 			names = append(names, sp.Name)
 		}

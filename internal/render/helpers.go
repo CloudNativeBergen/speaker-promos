@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
@@ -87,7 +88,7 @@ func logoBox(conf cnd.Conference, g theme.Geometry) (w, h float64, ok bool) {
 // tidies what it can: a blank contributes nothing rather than a stray
 // separator, and when nobody has a title the line is omitted entirely rather
 // than left as empty space.
-func rolesLine(speakers []cnd.Speaker) string {
+func rolesLine(speakers []promo.Speaker) string {
 	var out []string
 	for _, sp := range speakers {
 		if t := strings.TrimSpace(sp.Title); t != "" {

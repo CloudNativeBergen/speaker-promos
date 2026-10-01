@@ -13,6 +13,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/cache"
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/manifest"
+	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
 const usage = `promo — speaker promo graphics for Cloud Native Days
@@ -126,42 +127,47 @@ func (m *manifestFlag) load() (*manifest.Set, error) {
 	return manifest.Load(m.path)
 }
 
-// selectSessions resolves positional selectors, or every session with --all,
-// and applies the manifest's talk-level overrides to whatever it returns.
-//
-// A hidden talk is dropped from --all but kept when named explicitly: asking
-// for a talk by name and being told no talk matches would be a worse surprise
-// than rendering one that was meant to be skipped in bulk.
-func selectSessions(p *cnd.Program, set *manifest.Set, all bool, selectors []string) ([]cnd.Session, error) {
-	if all {
-		if len(selectors) > 0 {
-			return nil, errors.New("--all takes no selectors")
-		}
-		out := set.Apply(p.Sessions)
-		if skipped := len(p.Sessions) - len(out); skipped > 0 {
-			fmt.Fprintf(os.Stderr, "note: skipping %d talk(s) marked hidden in %s\n", skipped, set.Path())
-		}
-		return out, nil
+// selectTalks resolves positional selectors, or every talk with --all, with
+// the manifest's corrections applied — and says so when --all skipped hidden
+// talks, since a quietly shorter export is easy to miss.
+func selectTalks(r *promo.Resolver, all bool, selectors []string) ([]promo.Talk, error) {
+	talks, skipped, err := r.Select(all, selectors)
+	if err != nil {
+		return nil, err
 	}
-	if len(selectors) == 0 {
-		return nil, errors.New("give at least one selector, or --all")
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "note: skipping %d talk(s) marked hidden in %s\n", skipped, r.Set.Path())
 	}
+	return talks, nil
+}
 
-	seen := make(map[string]bool)
-	var out []cnd.Session
-	for _, sel := range selectors {
-		hits := p.Find(sel)
-		if len(hits) == 0 {
-			return nil, fmt.Errorf("no talk matches %q", sel)
-		}
-		for _, h := range hits {
-			if !seen[h.Talk.ID] {
-				seen[h.Talk.ID] = true
-				out = append(out, set.Rewrite(h))
-			}
-		}
+// linkFetcher is the Resolver.Links callback for a CLI run: it fetches each
+// speaker page at most once, since a speaker on two talks would otherwise be
+// fetched twice and each page is around 3 MB. Nil with --no-links.
+//
+// warn, when set, is told about a page that could not be read; handles only
+// suggest mentions, so a failure never aborts the run.
+func linkFetcher(loader *cnd.Loader, skip bool, warn func(cnd.Speaker, error)) func(cnd.Speaker) cnd.Links {
+	if skip {
+		return nil
 	}
-	return out, nil
+	seen := map[string]cnd.Links{}
+	return func(sp cnd.Speaker) cnd.Links {
+		// A speaker page is addressed by slug, so a speaker without one simply
+		// has no profile to scrape.
+		if sp.Slug == "" {
+			return cnd.Links{}
+		}
+		if l, ok := seen[sp.Key()]; ok {
+			return l
+		}
+		l, err := loader.SpeakerLinks(sp)
+		if err != nil && warn != nil {
+			warn(sp, err)
+		}
+		seen[sp.Key()] = l
+		return l
+	}
 }
 
 func newFlagSet(name string) *flag.FlagSet {

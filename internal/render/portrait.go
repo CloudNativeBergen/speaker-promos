@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
@@ -16,7 +17,7 @@ import (
 // one and five lines. The talk panel is then centred in whatever vertical space
 // is left between the speaker block and the footer, so a short title sits in
 // the middle of its space rather than clinging to the top.
-func (r *Renderer) portrait(conf cnd.Conference, s cnd.Session, g theme.Geometry, p *pass) (string, error) {
+func (r *Renderer) portrait(conf cnd.Conference, t promo.Talk, g theme.Geometry, p *pass) (string, error) {
 	// Content is drawn into its own canvas so the prelude — which must embed
 	// exactly the font faces the content ends up using — can be composed once
 	// those are known.
@@ -53,19 +54,19 @@ func (r *Renderer) portrait(conf cnd.Conference, s cnd.Session, g theme.Geometry
 
 	// Speaker photos in a row, shrinking as speakers are added so the row
 	// always fits the content width.
-	photoSize, positions := photoRow(g, len(s.Talk.Speakers), centre, content)
-	r.drawPhotos(c, p, s.Talk.Speakers, positions, y, photoSize, float64(g.Radius))
+	photoSize, positions := photoRow(g, len(t.Speakers), centre, content)
+	r.drawPhotos(c, p, t.Speakers, positions, y, photoSize, float64(g.Radius))
 	if len(positions) > 0 {
 		y += photoSize + float64(g.Gap)*0.85
 	}
 
 	// Names, then roles.
-	if h, err = r.text(c, p, g, "name", s.SpeakerNames(p.words.And), centre, y, content, "middle"); err != nil {
+	if h, err = r.text(c, p, g, "name", t.SpeakerNames(), centre, y, content, "middle"); err != nil {
 		return "", err
 	}
 	y += h
 
-	if role := rolesLine(s.Talk.Speakers); role != "" {
+	if role := rolesLine(t.Speakers); role != "" {
 		if h, err = r.text(c, p, g, "role", role, centre, y, content, "middle"); err != nil {
 			return "", err
 		}
@@ -83,7 +84,7 @@ func (r *Renderer) portrait(conf cnd.Conference, s cnd.Session, g theme.Geometry
 
 	top := y + float64(g.Gap)
 	bottom := footerTop - float64(g.Gap)
-	if err := r.talkPanel(c, p, g, s, pad, top, bottom, content); err != nil {
+	if err := r.talkPanel(c, p, g, t, pad, top, bottom, content); err != nil {
 		return "", err
 	}
 
@@ -92,13 +93,13 @@ func (r *Renderer) portrait(conf cnd.Conference, s cnd.Session, g theme.Geometry
 
 // talkPanel draws the eyebrow, talk title and detail line inside a translucent
 // panel, vertically centred between top and bottom.
-func (r *Renderer) talkPanel(c *canvas, p *pass, g theme.Geometry, s cnd.Session, x, top, bottom, width float64) error {
+func (r *Renderer) talkPanel(c *canvas, p *pass, g theme.Geometry, t promo.Talk, x, top, bottom, width float64) error {
 	inner := width - float64(g.Gap)*2
-	eyebrow := talkEyebrow(s)
-	detail := talkDetail(s)
+	eyebrow := talkEyebrow(t.Schedule)
+	detail := talkDetail(t.Talk)
 
 	eyebrowH := r.measureHeight(g, "eyebrow", eyebrow, inner)
-	titleH := r.measureHeight(g, "talk", s.Talk.Title, inner)
+	titleH := r.measureHeight(g, "talk", t.Title, inner)
 	detailH := r.measureHeight(g, "meta", detail, inner)
 
 	padV := float64(g.Gap) * 0.9
@@ -132,7 +133,7 @@ func (r *Renderer) talkPanel(c *canvas, p *pass, g theme.Geometry, s cnd.Session
 		y += h + gapS
 	}
 	if titleH > 0 {
-		h, err := r.text(c, p, g, "talk", s.Talk.Title, centre, y, inner, "middle")
+		h, err := r.text(c, p, g, "talk", t.Title, centre, y, inner, "middle")
 		if err != nil {
 			return err
 		}
@@ -146,8 +147,8 @@ func (r *Renderer) talkPanel(c *canvas, p *pass, g theme.Geometry, s cnd.Session
 	return nil
 }
 
-// talkEyebrow labels the panel with the session's slot.
-func talkEyebrow(s cnd.Session) string {
+// talkEyebrow labels the panel with the talk's slot.
+func talkEyebrow(s cnd.Slot) string {
 	var parts []string
 	if s.Day > 0 {
 		parts = append(parts, "Day "+strconv.Itoa(s.Day))
@@ -162,6 +163,6 @@ func talkEyebrow(s cnd.Session) string {
 }
 
 // talkDetail is the format and level line under the title.
-func talkDetail(s cnd.Session) string {
-	return joinMeta(s.Talk.FormatLabel(), s.Talk.LevelLabel())
+func talkDetail(t cnd.Talk) string {
+	return joinMeta(t.FormatLabel(), t.LevelLabel())
 }

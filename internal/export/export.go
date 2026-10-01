@@ -16,9 +16,9 @@ import (
 	"strings"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
-	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/post"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
 )
@@ -67,14 +67,9 @@ func ParseFormats(spec string) ([]string, error) {
 // Exporter writes bundles.
 type Exporter struct {
 	Renderer *render.Renderer
-	Set      *manifest.Set
-	// Program supplies the conference and the sessions as submitted, so a
-	// bundle's record can show the original title beside an overridden one.
-	Program *cnd.Program
-
-	// Language is the copy language, or lang.Auto to detect it per talk. A
-	// per-talk override in the manifest wins over either.
-	Language lang.Language
+	// Resolver applies the manifest, the scraped handles and the run's
+	// language, so a bundle says exactly what the preview of it does.
+	Resolver *promo.Resolver
 
 	// Formats and Sizes select what each bundle contains.
 	Formats []string
@@ -83,11 +78,6 @@ type Exporter struct {
 	RasterWidth int
 	// JPEGQuality defaults to 88 when zero.
 	JPEGQuality int
-
-	// LinksFor supplies a speaker's social handles. It is a callback rather
-	// than a loader because fetching policy differs by caller: the server
-	// caches across requests, the CLI may be told to skip it entirely.
-	LinksFor func(cnd.Speaker) cnd.Links
 
 	// Converter rasterises SVG. When HasConverter is false only SVG, copy and
 	// manifest are written — a missing rasteriser must not cost you the rest
@@ -107,17 +97,11 @@ type Result struct {
 	Warnings []string
 }
 
-// Write produces one talk's bundle under root.
-//
-// sess is the session as it will be rendered, overrides already applied. The
-// pre-override form is recovered from the manifest so the record can show a
-// submitted title next to the displayed one.
-func (e *Exporter) Write(root string, sess cnd.Session) (Result, error) {
-	// Applied here rather than trusted from the caller, so a bundle reflects
-	// the manifest as it stands at export time whichever path called in.
-	submitted := e.submitted(sess.Talk.ID)
-	sess = e.Set.Rewrite(sess)
-	res := Result{Dir: sess.FileStem()}
+// Write produces one talk's bundle under root. The talk comes from the same
+// Resolver, so the record and the copy agree with the cards about every
+// correction.
+func (e *Exporter) Write(root string, t promo.Talk) (Result, error) {
+	res := Result{Dir: t.FileStem()}
 	dir := filepath.Join(root, res.Dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return res, fmt.Errorf("creating %s: %w", dir, err)
@@ -128,9 +112,9 @@ func (e *Exporter) Write(root string, sess cnd.Session) (Result, error) {
 	wantJPG := slices.Contains(e.Formats, FormatJPG)
 
 	for _, size := range e.Sizes {
-		card, err := e.Renderer.Card(e.conference(), sess, size, e.language(sess.Talk.ID))
+		card, err := e.Renderer.Card(e.conference(), t, size)
 		if err != nil {
-			return res, fmt.Errorf("rendering %q at %s: %w", sess.Talk.Title, size, err)
+			return res, fmt.Errorf("rendering %q at %s: %w", t.Title, size, err)
 		}
 		if card.EmojiFallback {
 			res.Warnings = append(res.Warnings,
@@ -184,7 +168,7 @@ func (e *Exporter) Write(root string, sess cnd.Session) (Result, error) {
 		}
 	}
 
-	in := e.postInput(sess)
+	in := post.Input{Conference: e.conference(), Talk: t}
 	copyFiles, err := e.writeCopy(dir, in)
 	if err != nil {
 		return res, err
@@ -192,38 +176,12 @@ func (e *Exporter) Write(root string, sess cnd.Session) (Result, error) {
 	res.Files = append(res.Files, copyFiles...)
 
 	// Written last, so it can record which card files the run actually produced.
-	yamlName, err := e.writeManifest(dir, submitted, sess, in, res)
+	yamlName, err := e.writeManifest(dir, t, res)
 	if err != nil {
 		return res, err
 	}
 	res.Files = append(res.Files, yamlName)
 	return res, nil
-}
-
-// language is the talk's own copy language, which its card follows too — a
-// Norwegian talk joins its speakers with "og" on the image as well as in the
-// post. A per-talk override beats the run's --language, which beats detection.
-func (e *Exporter) language(talkID string) lang.Language {
-	return e.Set.LanguageOr(talkID, e.Language)
-}
-
-// postInput resolves the speakers once, so the copy and the record cannot
-// disagree about who works where.
-func (e *Exporter) postInput(sess cnd.Session) post.Input {
-	in := post.Input{Conference: e.conference(), Session: sess, Language: e.language(sess.Talk.ID)}
-	overrides := e.Set.Overrides()
-	for _, sp := range sess.Talk.Speakers {
-		var links cnd.Links
-		if e.LinksFor != nil {
-			links = e.LinksFor(sp)
-		}
-		in.Speakers = append(in.Speakers, post.Speaker{
-			Speaker: sp,
-			Role:    overrides.RoleFor(sp),
-			Links:   overrides.LinksFor(sp, links),
-		})
-	}
-	return in
 }
 
 // writeCopy writes the draft post for each platform, and the notes beside them.
@@ -283,40 +241,55 @@ func collectNotes(drafts []post.Draft, in post.Input) string {
 }
 
 // writeManifest writes the per-talk record and its editable overrides.
-func (e *Exporter) writeManifest(dir string, submitted, sess cnd.Session,
-	in post.Input, res Result) (string, error) {
+func (e *Exporter) writeManifest(dir string, t promo.Talk, res Result) (string, error) {
 	const name = "promo.yaml"
+	conf := e.conference()
 
-	speakers := make([]manifest.SpeakerInfo, 0, len(in.Speakers))
-	for _, sp := range in.Speakers {
-		speakers = append(speakers, manifest.SpeakerInfo{
+	info := manifest.TalkInfoSpec{
+		Conference: manifest.ConferenceInfo{
+			Title: conf.Title, StartDate: conf.StartDate, EndDate: conf.EndDate,
+			City: conf.City, Country: conf.Country, Domain: conf.Domain,
+			ProgramURL: conf.ProgramURL(),
+		},
+		Talk: manifest.TalkDetail{
+			ID: t.ID, Title: t.Title, Day: t.Schedule.Day, Date: t.Schedule.Date,
+			StartTime: t.Schedule.StartTime, EndTime: t.Schedule.EndTime, Track: t.Schedule.Track,
+			Format: t.Format, FormatLabel: t.FormatLabel(),
+			Level: t.Level, Topics: t.Topics, Abstract: t.Abstract,
+		},
+		Cards:    cardFiles(res.Files),
+		Warnings: res.Warnings,
+	}
+	// The submitted title is recorded only when an override changed it, so the
+	// record shows both.
+	if t.SubmittedTitle != t.Title {
+		info.Talk.SubmittedTitle = t.SubmittedTitle
+	}
+
+	speakers := make([]manifest.BundleSpeaker, 0, len(t.Speakers))
+	for _, sp := range t.Speakers {
+		info.Speakers = append(info.Speakers, manifest.SpeakerInfo{
 			Name:            sp.Name,
-			Slug:            sp.Slug,
-			ProfileTitle:    sp.Speaker.Title,
+			Key:             sp.Key,
+			Slug:            sp.Source.Slug,
+			SubmittedTitle:  sp.Source.Title,
+			Title:           sp.Title,
 			Employer:        sp.Role.Employer,
 			Job:             sp.Role.Job,
 			EmployerGuessed: sp.Role.Guessed,
-			Image:           sp.Speaker.Image,
+			Image:           sp.Image,
 			// Recorded rather than inferred from Image being set: an URL that
 			// fails to fetch also lands on the monogram, and this is the field
 			// that tells you an `image:` override would help.
-			HasPhoto:   e.Renderer.HasPhoto(sp.Speaker),
-			ProfileURL: e.conference().SpeakerURL(sp.Speaker),
-			LinkedIn:   sp.Links.LinkedIn,
-			Bluesky:    sp.Links.Bluesky,
-			X:          sp.Links.X,
-			GitHub:     sp.Links.GitHub,
+			HasPhoto:   e.Renderer.HasPhoto(sp.Image),
+			ProfileURL: conf.SpeakerURL(sp.Source),
+			Links:      sp.Links,
 		})
+		current, _ := e.Resolver.Set.Speaker(sp.Key)
+		speakers = append(speakers, manifest.BundleSpeaker{Key: sp.Key, Spec: promo.BundleSpec(current, sp)})
 	}
 
-	data, err := e.Set.ForSession(manifest.SessionInfo{
-		Conference: e.conference(),
-		Session:    sess,
-		Submitted:  submitted,
-		Speakers:   speakers,
-		Cards:      cardFiles(res.Files),
-		Warnings:   res.Warnings,
-	}, e.Set.Overrides())
+	data, err := e.Resolver.Set.EncodeBundle(info, speakers)
 	if err != nil {
 		return "", err
 	}
@@ -340,17 +313,8 @@ func cardFiles(files []string) []string {
 
 // conference is the event a bundle belongs to.
 func (e *Exporter) conference() cnd.Conference {
-	if e.Program == nil {
+	if e.Resolver.Program == nil {
 		return cnd.Conference{}
 	}
-	return e.Program.Conference
-}
-
-// submitted finds a talk as it was submitted, before any override.
-func (e *Exporter) submitted(talkID string) cnd.Session {
-	if e.Program == nil {
-		return cnd.Session{}
-	}
-	sess, _ := e.Program.Session(talkID)
-	return sess
+	return e.Resolver.Program.Conference
 }

@@ -9,8 +9,8 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cache"
 	"github.com/vehagn/speaker-promos/internal/cnd"
-	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/layout"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
@@ -53,13 +53,12 @@ type Result struct {
 	Overflow []string
 }
 
-// Card renders one session at one card size.
+// Card renders one talk at one card size.
 //
-// l selects the wording — currently just the conjunction between speaker
-// names, which must be "og" on a Norwegian talk. Pass lang.Auto to have it
-// detected from the talk's own title and abstract.
-func (r *Renderer) Card(conf cnd.Conference, s cnd.Session, size string, l lang.Language) (Result, error) {
-	return r.render(conf, s, size, l, false)
+// The talk's language selects the wording — currently just the conjunction
+// between speaker names, which must be "og" on a Norwegian talk.
+func (r *Renderer) Card(conf cnd.Conference, t promo.Talk, size string) (Result, error) {
+	return r.render(conf, t, size, false)
 }
 
 // Inspect reports what rendering a card would warn about — truncated text, or
@@ -73,28 +72,26 @@ func (r *Renderer) Card(conf cnd.Conference, s cnd.Session, size string, l lang.
 // which needs neither.
 //
 // The returned SVG is not a card and must not be served.
-func (r *Renderer) Inspect(conf cnd.Conference, s cnd.Session, size string, l lang.Language) (Result, error) {
-	return r.render(conf, s, size, l, true)
+func (r *Renderer) Inspect(conf cnd.Conference, t promo.Talk, size string) (Result, error) {
+	return r.render(conf, t, size, true)
 }
 
-func (r *Renderer) render(conf cnd.Conference, s cnd.Session, size string,
-	l lang.Language, inspect bool) (Result, error) {
+func (r *Renderer) render(conf cnd.Conference, t promo.Talk, size string, inspect bool) (Result, error) {
 	g, err := r.Theme.Size(size)
 	if err != nil {
 		return Result{}, err
 	}
 	p := &pass{
 		faces:   map[string]bool{},
-		words:   l.Resolve(s.Talk.Title, s.Talk.Abstract).Words(),
 		inspect: inspect,
 	}
 
 	var svg string
 	switch size {
 	case "landscape":
-		svg, err = r.landscape(conf, s, g, p)
+		svg, err = r.landscape(conf, t, g, p)
 	default:
-		svg, err = r.portrait(conf, s, g, p)
+		svg, err = r.portrait(conf, t, g, p)
 	}
 	if err != nil {
 		return Result{}, err
@@ -114,9 +111,7 @@ func (r *Renderer) render(conf cnd.Conference, s cnd.Session, size string,
 // embedded — carrying all three Space Grotesk weights when a card uses two adds
 // ~150 KB per file for nothing.
 type pass struct {
-	faces map[string]bool
-	// words is the wording for this card's language, resolved once.
-	words    lang.Phrases
+	faces    map[string]bool
 	emoji    bool
 	overflow []string
 	// inspect asks for the warnings only. It skips fetching photos and
@@ -200,8 +195,8 @@ func (r *Renderer) backdrop(c *canvas, g theme.Geometry) {
 // Photos are embedded as data URIs so a card is a single self-contained file —
 // the 2025 promos were hand-built the same way. A remote <image href> would
 // leave a card that breaks when the CDN URL rotates.
-func (r *Renderer) photo(c *canvas, p *pass, sp cnd.Speaker, x, y, size, radius float64) {
-	clip := fmt.Sprintf("photo-%s", strings.ReplaceAll(sp.Slug+sp.ID, " ", ""))
+func (r *Renderer) photo(c *canvas, p *pass, sp promo.Speaker, x, y, size, radius float64) {
+	clip := fmt.Sprintf("photo-%s", strings.ReplaceAll(sp.Source.Slug+sp.Source.ID, " ", ""))
 	if clip == "photo-" {
 		clip = "photo-anon"
 	}
@@ -209,14 +204,14 @@ func (r *Renderer) photo(c *canvas, p *pass, sp cnd.Speaker, x, y, size, radius 
 	c.writef("  <defs><clipPath id=%q><rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" rx=\"%s\"/></clipPath></defs>\n",
 		clip, num(x), num(y), num(size), num(size), num(radius))
 
-	if data, mime, ok := r.photoData(p, sp, int(size)); ok {
+	if data, mime, ok := r.photoData(p, sp.Image, int(size)); ok {
 		c.writef("  <image x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" clip-path=\"url(#%s)\" preserveAspectRatio=\"xMidYMid slice\" xlink:href=\"data:%s;base64,%s\"/>\n",
 			num(x), num(y), num(size), num(size), clip, mime, base64.StdEncoding.EncodeToString(data))
 	} else {
 		c.writef("  <rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" rx=\"%s\" %s/>\n",
 			num(x), num(y), num(size), num(size), num(radius),
 			parsePaint(r.Theme.Palette.CardFill).fillAttrs(1))
-		r.monogram(c, sp, x+size/2, y+size/2, size)
+		r.monogram(c, sp.Name, x+size/2, y+size/2, size)
 	}
 
 	c.writef("  <rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" rx=\"%s\" fill=\"none\" %s stroke-width=\"%s\"/>\n",
@@ -226,7 +221,7 @@ func (r *Renderer) photo(c *canvas, p *pass, sp cnd.Speaker, x, y, size, radius 
 
 // drawPhotos paints a row of speaker photos at the left edges photoRow
 // computed. Speakers past the last position are the ones the row caps at.
-func (r *Renderer) drawPhotos(c *canvas, p *pass, speakers []cnd.Speaker,
+func (r *Renderer) drawPhotos(c *canvas, p *pass, speakers []promo.Speaker,
 	lefts []float64, y, size, radius float64) {
 	for i, sp := range speakers {
 		if i >= len(lefts) {
@@ -237,8 +232,8 @@ func (r *Renderer) drawPhotos(c *canvas, p *pass, speakers []cnd.Speaker,
 }
 
 // monogram draws a speaker's initials, used when no photo exists.
-func (r *Renderer) monogram(c *canvas, sp cnd.Speaker, cx, cy, box float64) {
-	initials := Initials(sp.Name)
+func (r *Renderer) monogram(c *canvas, name string, cx, cy, box float64) {
+	initials := Initials(name)
 	if initials == "" {
 		return
 	}
@@ -271,7 +266,7 @@ func Initials(name string) string {
 
 // HasPhoto reports whether a speaker's photo can actually be fetched.
 //
-// This is not the same as "Image is set": an URL that 404s, or a local path
+// This is not the same as "image is set": an URL that 404s, or a local path
 // that does not exist, also lands on a monogram, and callers reporting what a
 // card shows need the fetched answer rather than the configured one.
 //
@@ -280,23 +275,23 @@ func Initials(name string) string {
 // size varies with its geometry and speaker count, so there is no single size
 // that would always reuse the card's cache entry — a small one at least keeps
 // the miss cheap.
-func (r *Renderer) HasPhoto(sp cnd.Speaker) bool {
-	_, _, ok := r.fetchPhoto(sp, 0)
+func (r *Renderer) HasPhoto(image string) bool {
+	_, _, ok := r.fetchPhoto(image, 0)
 	return ok
 }
 
 // photoData is fetchPhoto unless this is an inspection pass, which must not
 // touch the network.
-func (r *Renderer) photoData(p *pass, sp cnd.Speaker, size int) ([]byte, string, bool) {
+func (r *Renderer) photoData(p *pass, image string, size int) ([]byte, string, bool) {
 	if p != nil && p.inspect {
 		return nil, "", false
 	}
-	return r.fetchPhoto(sp, size)
+	return r.fetchPhoto(image, size)
 }
 
 // fetchPhoto downloads a speaker photo, returning its bytes and MIME type.
-func (r *Renderer) fetchPhoto(sp cnd.Speaker, size int) ([]byte, string, bool) {
-	src := sp.ImageSource(photoRequestSize(size))
+func (r *Renderer) fetchPhoto(image string, size int) ([]byte, string, bool) {
+	src := cnd.ImageSourceOf(image, photoRequestSize(size))
 	if src.Empty() {
 		return nil, "", false
 	}

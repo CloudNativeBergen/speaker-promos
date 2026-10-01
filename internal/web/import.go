@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vehagn/speaker-promos/internal/manifest"
+	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
 // handleImport merges the edited promo.yaml files under the output directory
@@ -40,7 +41,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := manifest.BaselineFor(s.opts.Program)
+	opts := promo.ImportBaseline(s.opts.Program)
 	opts.ConfirmGuesses = confirm
 
 	s.mu.Lock()

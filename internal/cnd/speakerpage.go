@@ -7,15 +7,27 @@ import (
 )
 
 // Links are a speaker's public profiles, for @-mentions in social copy.
+//
+// The website stores these as a plain list of URLs on the speaker; this is that
+// list sorted into the platforms the copy can use. The yaml tags are the
+// manifest's field names, so a correction is written in the same shape.
 type Links struct {
-	LinkedIn string // profile URL
-	Bluesky  string // handle, e.g. "dario.bsky.social"
-	GitHub   string // username
-	X        string // handle without "@"
+	LinkedIn string `yaml:"linkedin,omitempty"` // profile URL
+	Bluesky  string `yaml:"bluesky,omitempty"`  // handle, e.g. "dario.bsky.social"
+	X        string `yaml:"x,omitempty"`        // handle without "@"
+	GitHub   string `yaml:"github,omitempty"`   // username
 }
 
 // Empty reports whether no links were found.
 func (l Links) Empty() bool { return l == Links{} }
+
+// Normalize strips the "@" a handle may be written with — the way people say
+// it — so that it is not doubled when a post adds its own.
+func (l Links) Normalize() Links {
+	l.Bluesky = strings.TrimPrefix(strings.TrimSpace(l.Bluesky), "@")
+	l.X = strings.TrimPrefix(strings.TrimSpace(l.X), "@")
+	return l
+}
 
 // Merge returns l with every non-empty field of over replacing it, which is how
 // a correction wins over what was scraped.

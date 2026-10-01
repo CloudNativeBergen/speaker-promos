@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-
-	"github.com/vehagn/speaker-promos/internal/cnd"
 )
 
 // handleExport writes a bundle per visible talk into the output directory.
@@ -16,23 +14,18 @@ import (
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	size := s.sizeParam(r)
 
-	s.mu.Lock()
-	// Filtered here but NOT rewritten: the exporter applies overrides itself so
-	// that it can also record each talk as submitted.
-	var sessions []cnd.Session
-	for _, sess := range s.opts.Program.Sessions {
-		if !s.opts.Set.Hidden(sess.Talk.ID) {
-			sessions = append(sessions, sess)
-		}
+	// The same selection as `promo export --all`, hidden talks skipped.
+	selected, skipped, err := s.resolver.Select(true, nil)
+	if err != nil {
+		s.fail(w, err)
+		return
 	}
-	skipped := len(s.opts.Program.Sessions) - len(sessions)
 	exporter := s.exporter([]string{size})
-	s.mu.Unlock()
 
 	talks, files := 0, 0
 	var warnings []string
-	for _, sess := range sessions {
-		res, err := exporter.Write(s.opts.OutDir, sess)
+	for _, t := range selected {
+		res, err := exporter.Write(s.opts.OutDir, t)
 		if err != nil {
 			s.fail(w, err)
 			return

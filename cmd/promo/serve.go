@@ -83,7 +83,7 @@ func cmdServe(args []string) error {
 			fmt.Printf("%d/%d\n", done, total)
 		}
 	})
-	fmt.Printf("%s — %d talks\n", program.Conference.Title, len(program.Sessions))
+	fmt.Printf("%s — %d talks\n", program.Conference.Title, len(program.Talks))
 	fmt.Printf("overrides: %s\n", set.Path())
 	fmt.Printf("\n  http://%s\n\n", ln.Addr())
 	fmt.Println("Edits save immediately. Ctrl-C to stop.")

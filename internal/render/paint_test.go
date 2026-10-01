@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
@@ -235,10 +235,10 @@ func mustTheme(t *testing.T) *theme.Theme {
 	return th
 }
 
-func speakersWithTitles(titles ...string) []cnd.Speaker {
-	out := make([]cnd.Speaker, 0, len(titles))
+func speakersWithTitles(titles ...string) []promo.Speaker {
+	out := make([]promo.Speaker, 0, len(titles))
 	for i, title := range titles {
-		out = append(out, cnd.Speaker{ID: strconv.Itoa(i), Name: "Speaker " + strconv.Itoa(i), Title: title})
+		out = append(out, promo.Speaker{Key: strconv.Itoa(i), Name: "Speaker " + strconv.Itoa(i), Title: title})
 	}
 	return out
 }

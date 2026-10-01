@@ -8,6 +8,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/post"
+	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
 func cmdPost(args []string) error {
@@ -28,52 +29,34 @@ func cmdPost(args []string) error {
 	if err != nil {
 		return err
 	}
-	overrides := set.Overrides()
 	copyLang, err := lang.ParseLanguage(*language)
 	if err != nil {
 		return err
 	}
 
-	program, err := common.load()
-	if err != nil {
-		return err
-	}
-	sessions, err := selectSessions(program, set, *all, fs.Args())
-	if err != nil {
-		return err
-	}
-
 	loader := common.loader()
+	program, err := loader.Load()
+	if err != nil {
+		return err
+	}
+	resolver := &promo.Resolver{
+		Program:  program,
+		Set:      set,
+		Language: copyLang,
+		Links: linkFetcher(loader, *noLinks, func(sp cnd.Speaker, err error) {
+			fmt.Fprintf(os.Stderr, "note: could not read %s's profile page: %v\n", sp.Name, err)
+		}),
+	}
+	talks, err := selectTalks(resolver, *all, fs.Args())
+	if err != nil {
+		return err
+	}
 
-	for i, s := range sessions {
+	for i, t := range talks {
 		if i > 0 {
 			fmt.Println(strings.Repeat("─", 72))
 		}
-		// A per-talk override wins over the flag, which in turn wins over
-		// detection.
-		in := post.Input{
-			Conference: program.Conference,
-			Session:    s,
-			Language:   set.LanguageOr(s.Talk.ID, copyLang),
-		}
-		for _, sp := range s.Talk.Speakers {
-			var links cnd.Links
-			if !*noLinks {
-				// A speaker page is ~3 MB and this is only for optional
-				// @-mention suggestions, so a failure is reported and skipped
-				// rather than aborting the draft.
-				got, err := loader.SpeakerLinks(sp)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "note: could not read %s's profile page: %v\n", sp.Name, err)
-				}
-				links = got
-			}
-			in.Speakers = append(in.Speakers, post.Speaker{
-				Speaker: sp,
-				Role:    overrides.RoleFor(sp),
-				Links:   overrides.LinksFor(sp, links),
-			})
-		}
+		in := post.Input{Conference: program.Conference, Talk: t}
 
 		var drafts []post.Draft
 		switch *platform {

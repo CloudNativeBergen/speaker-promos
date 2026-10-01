@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
-	"github.com/vehagn/speaker-promos/internal/post"
 )
 
 // bundleHeader introduces a per-talk manifest written into an export folder.
@@ -61,24 +60,25 @@ type TalkDetail struct {
 // SpeakerInfo records one speaker as the cards and copy saw them.
 type SpeakerInfo struct {
 	Name string `yaml:"name"`
+	// Key is the name of this speaker's SpeakerOverride.
+	Key  string `yaml:"key"`
 	Slug string `yaml:"slug,omitempty"`
-	// ProfileTitle is the upstream free-text field the employer was guessed
+	// SubmittedTitle is the website's free-text title the employer was guessed
 	// from, kept so a wrong guess can be judged without opening the website.
-	ProfileTitle string `yaml:"profileTitle,omitempty"`
-	Employer     string `yaml:"employer,omitempty"`
-	Job          string `yaml:"job,omitempty"`
-	// EmployerGuessed marks an employer derived from ProfileTitle rather than
+	SubmittedTitle string `yaml:"submittedTitle,omitempty"`
+	// Title is the role line the card printed.
+	Title    string `yaml:"title,omitempty"`
+	Employer string `yaml:"employer,omitempty"`
+	Job      string `yaml:"job,omitempty"`
+	// EmployerGuessed marks an employer derived from SubmittedTitle rather than
 	// taken from an override.
 	EmployerGuessed bool   `yaml:"employerGuessed,omitempty"`
 	Image           string `yaml:"image,omitempty"`
 	// HasPhoto is false when the card fell back to a monogram, which is the
 	// case an `image:` override exists to fix.
-	HasPhoto   bool   `yaml:"hasPhoto"`
-	ProfileURL string `yaml:"profileUrl,omitempty"`
-	LinkedIn   string `yaml:"linkedin,omitempty"`
-	Bluesky    string `yaml:"bluesky,omitempty"`
-	X          string `yaml:"x,omitempty"`
-	GitHub     string `yaml:"github,omitempty"`
+	HasPhoto   bool      `yaml:"hasPhoto"`
+	ProfileURL string    `yaml:"profileUrl,omitempty"`
+	Links      cnd.Links `yaml:"links,omitempty"`
 }
 
 // TalkInfoSpec is the whole record for one bundle.
@@ -97,89 +97,36 @@ type TalkInfoSpec struct {
 	Warnings []string `yaml:"warnings,omitempty"`
 }
 
-// SessionInfo is everything the caller knows that the manifest does not.
-type SessionInfo struct {
-	Conference cnd.Conference
-	// Session after overrides, i.e. what the cards actually rendered.
-	Session cnd.Session
-	// Submitted is the session before overrides, for recording the original
-	// title alongside the displayed one.
-	Submitted cnd.Session
-	Speakers  []SpeakerInfo
-	Cards     []string
-	Warnings  []string
+// BundleSpeaker is one speaker's editable override in a bundle.
+type BundleSpeaker struct {
+	Key  string
+	Spec SpeakerSpec
 }
 
-// ForSession renders the manifest documents for one talk as YAML.
+// EncodeBundle renders the manifest documents for one talk as YAML: the record,
+// then each speaker's override, then the talk's own.
 //
-// Unlike Set.Save, every field is written even when it holds a guess rather
-// than a correction. An export folder is a record of what produced its cards,
-// and a manifest that omitted the guessed employer would not say what the card
-// actually claimed — nor give you a line to edit.
+// Unlike Set.Save, the speaker overrides are written as the caller pre-filled
+// them, guesses included. An export folder is a record of what produced its
+// cards, and a manifest that omitted the guessed employer would not say what
+// the card actually claimed — nor give you a line to edit.
 //
 // The talk's own document is emitted only when it carries something: a display
-// title or a hidden flag. There is nothing to pre-fill it with otherwise, and an
-// empty object would just be noise.
-func (s *Set) ForSession(info SessionInfo, overrides post.Overrides) ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	sess := info.Session
-	talk := TalkDetail{
-		ID: sess.Talk.ID, Title: sess.Talk.Title, Day: sess.Day, Date: sess.Date,
-		StartTime: sess.StartTime, EndTime: sess.EndTime, Track: sess.Track,
-		Format: sess.Talk.Format, FormatLabel: sess.Talk.FormatLabel(),
-		Level: sess.Talk.Level, Topics: sess.Talk.Topics, Abstract: sess.Talk.Abstract,
+// title, a language or a hidden flag. There is nothing to pre-fill it with
+// otherwise, and an empty object would just be noise.
+func (s *Set) EncodeBundle(info TalkInfoSpec, speakers []BundleSpeaker) ([]byte, error) {
+	id := info.Talk.ID
+	docs := []document{{APIVersion, KindTalkInfo, Metadata{id}, info}}
+	for _, sp := range speakers {
+		docs = append(docs, document{APIVersion, KindSpeakerOverride, Metadata{sp.Key}, sp.Spec})
 	}
-	if original := info.Submitted.Talk.Title; original != "" && original != sess.Talk.Title {
-		talk.SubmittedTitle = original
-	}
-	conf := info.Conference
-
-	docs := []document{{
-		APIVersion, KindTalkInfo, Metadata{sess.Talk.ID}, TalkInfoSpec{
-			Conference: ConferenceInfo{
-				Title: conf.Title, StartDate: conf.StartDate, EndDate: conf.EndDate,
-				City: conf.City, Country: conf.Country, Domain: conf.Domain,
-				ProgramURL: conf.ProgramURL(),
-			},
-			Talk:     talk,
-			Speakers: info.Speakers,
-			Cards:    info.Cards,
-			Warnings: info.Warnings,
-		},
-	}}
-	for _, sp := range sess.Talk.Speakers {
-		if sp.Slug == "" {
-			// Overrides are keyed by slug; a speaker without one cannot be
-			// addressed, so there is no document to write.
-			continue
-		}
-		spec := s.speakers[sp.Slug]
-		// Pre-filled so the name is a line you can correct rather than a field
-		// you have to know exists. Title is deliberately left out: it is an
-		// escape hatch, and pre-filling it would freeze the composed
-		// job-and-employer line and stop those two from doing anything.
-		if spec.Name == "" {
-			spec.Name = sp.Name
-		}
-		if spec.Employer == "" && spec.Job == "" {
-			// Pre-fill from what the card used, so the file is editable rather
-			// than blank. RoleFor resolves the override first and falls back to
-			// the heuristic, which is exactly what the card rendered.
-			role := overrides.RoleFor(sp)
-			spec.Employer, spec.Job = role.Employer, role.Job
-		}
-		docs = append(docs, document{APIVersion, KindSpeakerOverride, Metadata{sp.Slug}, spec})
-	}
-
-	if spec, ok := s.talks[sess.Talk.ID]; ok && !spec.empty() {
-		docs = append(docs, document{APIVersion, KindTalkOverride, Metadata{sess.Talk.ID}, spec})
+	if spec, ok := s.Talk(id); ok && !spec.empty() {
+		docs = append(docs, document{APIVersion, KindTalkOverride, Metadata{id}, spec})
 	}
 
 	data, err := encode(bundleHeader, docs)
 	if err != nil {
-		return nil, fmt.Errorf("encoding manifest for %q: %w", sess.Talk.Title, err)
+		return nil, fmt.Errorf("encoding manifest for %q: %w", info.Talk.Title, err)
 	}
 	return data, nil
 }

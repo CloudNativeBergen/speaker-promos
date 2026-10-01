@@ -33,7 +33,7 @@ type ImportOptions struct {
 	// exported manifest pre-fills the name, employer and job, so importing it
 	// verbatim would turn every guess into a confirmed correction and silence
 	// the warnings that exist to be read.
-	SpeakerBaseline func(slug string) (SpeakerSpec, bool)
+	SpeakerBaseline func(key string) (SpeakerSpec, bool)
 	// TalkBaseline reports a talk's submitted title, so a displayTitle that
 	// merely repeats it is not mistaken for a shortening.
 	TalkBaseline func(id string) (title string, ok bool)
@@ -60,13 +60,13 @@ func (s *Set) ImportFrom(src *Set, opts ImportOptions) ([]Change, error) {
 	defer s.mu.Unlock()
 
 	var changes []Change
-	for _, slug := range slices.Sorted(maps.Keys(incoming)) {
-		spec := trimSpeaker(incoming[slug])
-		current := s.speakers[slug]
+	for _, key := range slices.Sorted(maps.Keys(incoming)) {
+		spec := trimSpeaker(incoming[key])
+		current := s.speakers[key]
 
 		var base SpeakerSpec
 		if opts.SpeakerBaseline != nil && !opts.ConfirmGuesses {
-			if b, ok := opts.SpeakerBaseline(slug); ok {
+			if b, ok := opts.SpeakerBaseline(key); ok {
 				base = trimSpeaker(b)
 			}
 		}
@@ -89,16 +89,16 @@ func (s *Set) ImportFrom(src *Set, opts ImportOptions) ([]Change, error) {
 				continue
 			}
 			changes = append(changes, Change{
-				Kind: KindSpeakerOverride, Name: slug, Field: f.name,
+				Kind: KindSpeakerOverride, Name: key, Field: f.name,
 				From: was, To: in,
 			})
 			*f.of(&merged) = in
 		}
 		if merged != current && !opts.DryRun {
 			if merged = trimSpeaker(merged); merged.empty() {
-				delete(s.speakers, slug)
+				delete(s.speakers, key)
 			} else {
-				s.speakers[slug] = merged
+				s.speakers[key] = merged
 			}
 		}
 	}
@@ -160,7 +160,7 @@ func (s *Set) ImportFrom(src *Set, opts ImportOptions) ([]Change, error) {
 	return changes, nil
 }
 
-// Speakers returns every speaker override, keyed by slug. The map is a copy.
+// Speakers returns every speaker override, keyed by speaker key. The map is a copy.
 func (s *Set) Speakers() map[string]SpeakerSpec {
 	s.mu.Lock()
 	defer s.mu.Unlock()

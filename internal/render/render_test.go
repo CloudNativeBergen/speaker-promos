@@ -21,6 +21,7 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
@@ -62,30 +63,36 @@ func testConference() cnd.Conference {
 	}
 }
 
-func testSession() cnd.Session {
-	return cnd.Session{
-		Date:      "2026-10-26",
-		Day:       1,
-		Track:     "Track 2: Platform Engineering, SRE & Operations",
-		StartTime: "13:20",
-		EndTime:   "13:45",
-		Talk: cnd.Talk{
-			ID:     "09b41694-27be-495d-abe3-1899bd725ad8",
-			Title:  "Pods on Mars: Selvberget Kubernetes",
-			Format: "presentation_25",
-			Level:  "intermediate",
-			Speakers: []cnd.Speaker{
-				{ID: "a1", Name: "Sindre Vik", Slug: "sindre-vik", Title: "Platform Engineer at Fjordstack"},
-			},
+func testTalk() cnd.Talk {
+	return cnd.Talk{
+		ID:     "09b41694-27be-495d-abe3-1899bd725ad8",
+		Title:  "Pods on Mars: Selvberget Kubernetes",
+		Format: "presentation_25",
+		Level:  "intermediate",
+		Speakers: []cnd.Speaker{
+			{ID: "a1", Name: "Sindre Vik", Slug: "sindre-vik", Title: "Platform Engineer at Fjordstack"},
+		},
+		Schedule: cnd.Slot{
+			Date:      "2026-10-26",
+			Day:       1,
+			Track:     "Track 2: Platform Engineering, SRE & Operations",
+			StartTime: "13:20",
+			EndTime:   "13:45",
 		},
 	}
+}
+
+// resolve is a talk as submitted, worded in l: the renderer is not where
+// corrections are applied, so its tests need none.
+func resolve(t cnd.Talk, l lang.Language) promo.Talk {
+	return (&promo.Resolver{Language: l}).Talk(t)
 }
 
 func TestGoldenCards(t *testing.T) {
 	r := renderer(t)
 	for _, size := range []string{"portrait", "landscape"} {
 		t.Run(size, func(t *testing.T) {
-			res, err := r.Card(testConference(), testSession(), size, lang.Auto)
+			res, err := r.Card(testConference(), resolve(testTalk(), lang.Auto), size)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,12 +157,12 @@ func compareGolden(t *testing.T, name, got string) {
 // produce a file no renderer will open.
 func TestCardsAreWellFormedXML(t *testing.T) {
 	r := renderer(t)
-	s := testSession()
-	s.Talk.Title = `Tom & Jerry's <script>alert("x")</script> "quoted" ampersand & more`
-	s.Talk.Speakers[0].Name = `A & B <b>bold</b>`
+	s := testTalk()
+	s.Title = `Tom & Jerry's <script>alert("x")</script> "quoted" ampersand & more`
+	s.Speakers[0].Name = `A & B <b>bold</b>`
 
 	for _, size := range []string{"portrait", "landscape"} {
-		res, err := r.Card(testConference(), s, size, lang.Auto)
+		res, err := r.Card(testConference(), resolve(s, lang.Auto), size)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,7 +192,7 @@ func TestCardsAreWellFormedXML(t *testing.T) {
 func TestNoCSSColorSyntaxInAttributes(t *testing.T) {
 	r := renderer(t)
 	for _, size := range []string{"portrait", "landscape"} {
-		res, err := r.Card(testConference(), testSession(), size, lang.Auto)
+		res, err := r.Card(testConference(), resolve(testTalk(), lang.Auto), size)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -199,7 +206,7 @@ func TestNoCSSColorSyntaxInAttributes(t *testing.T) {
 
 func TestOnlyUsedFacesAreEmbedded(t *testing.T) {
 	r := renderer(t)
-	res, err := r.Card(testConference(), testSession(), "portrait", lang.Auto)
+	res, err := r.Card(testConference(), resolve(testTalk(), lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,10 +222,10 @@ func TestOnlyUsedFacesAreEmbedded(t *testing.T) {
 
 func TestEmojiIsReportedAndStrippable(t *testing.T) {
 	r := renderer(t)
-	s := testSession()
-	s.Talk.Title = "Kan 🇳🇴 skyen kjøre på en brødrister?"
+	s := testTalk()
+	s.Title = "Kan 🇳🇴 skyen kjøre på en brødrister?"
 
-	res, err := r.Card(testConference(), s, "portrait", lang.Auto)
+	res, err := r.Card(testConference(), resolve(s, lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +246,7 @@ func TestEmojiIsReportedAndStrippable(t *testing.T) {
 		t.Fatal(err)
 	}
 	stripped.StripEmoji = true
-	res2, err := stripped.Card(testConference(), s, "portrait", lang.Auto)
+	res2, err := stripped.Card(testConference(), resolve(s, lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +269,7 @@ func TestEmojiIsReportedAndStrippable(t *testing.T) {
 // empty square; five of the 2026 speakers have no image or no title.
 func TestMissingPhotoFallsBackToMonogram(t *testing.T) {
 	r := renderer(t)
-	res, err := r.Card(testConference(), testSession(), "portrait", lang.Auto)
+	res, err := r.Card(testConference(), resolve(testTalk(), lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,9 +283,9 @@ func TestMissingPhotoFallsBackToMonogram(t *testing.T) {
 
 func TestMissingTitleOmitsRoleLine(t *testing.T) {
 	r := renderer(t)
-	s := testSession()
-	s.Talk.Speakers[0].Title = ""
-	res, err := r.Card(testConference(), s, "portrait", lang.Auto)
+	s := testTalk()
+	s.Speakers[0].Title = ""
+	res, err := r.Card(testConference(), resolve(s, lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +305,7 @@ func TestMissingLogoFallsBackToConferenceName(t *testing.T) {
 	r := renderer(t)
 	conf := testConference()
 	conf.LogoBright = ""
-	res, err := r.Card(conf, testSession(), "portrait", lang.Auto)
+	res, err := r.Card(conf, resolve(testTalk(), lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,23 +387,23 @@ func TestInspectAgreesWithCard(t *testing.T) {
 	r := renderer(t)
 	conf := testConference()
 
-	sessions := []cnd.Session{
-		testSession(),
-		func() cnd.Session { // emoji title
-			s := testSession()
-			s.Talk.Title = "Kan 🇳🇴 skyen kjøre på en brødrister?"
+	sessions := []cnd.Talk{
+		testTalk(),
+		func() cnd.Talk { // emoji title
+			s := testTalk()
+			s.Title = "Kan 🇳🇴 skyen kjøre på en brødrister?"
 			return s
 		}(),
-		func() cnd.Session { // long enough to truncate
-			s := testSession()
-			s.Talk.Title = strings.Repeat("An extremely long talk title about platforms ", 8)
-			s.Talk.Speakers[0].Name = strings.Repeat("Very Long Speaker Name ", 6)
+		func() cnd.Talk { // long enough to truncate
+			s := testTalk()
+			s.Title = strings.Repeat("An extremely long talk title about platforms ", 8)
+			s.Speakers[0].Name = strings.Repeat("Very Long Speaker Name ", 6)
 			return s
 		}(),
-		func() cnd.Session { // no title, several speakers
-			s := testSession()
-			s.Talk.Speakers[0].Title = ""
-			s.Talk.Speakers = append(s.Talk.Speakers,
+		func() cnd.Talk { // no title, several speakers
+			s := testTalk()
+			s.Speakers[0].Title = ""
+			s.Speakers = append(s.Speakers,
 				cnd.Speaker{ID: "b", Name: "Solveig Ulriksen", Slug: "solveig", Title: "Skyvakt"})
 			return s
 		}(),
@@ -404,11 +411,11 @@ func TestInspectAgreesWithCard(t *testing.T) {
 
 	for i, sess := range sessions {
 		for _, size := range []string{"portrait", "landscape"} {
-			card, err := r.Card(conf, sess, size, lang.Auto)
+			card, err := r.Card(conf, resolve(sess, lang.Auto), size)
 			if err != nil {
 				t.Fatal(err)
 			}
-			seen, err := r.Inspect(conf, sess, size, lang.Auto)
+			seen, err := r.Inspect(conf, resolve(sess, lang.Auto), size)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -447,10 +454,10 @@ func TestInspectSkipsPhotosAndFonts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess := testSession()
-	sess.Talk.Speakers[0].Image = srv.URL + "/photo.png"
+	sess := testTalk()
+	sess.Speakers[0].Image = srv.URL + "/photo.png"
 
-	seen, err := r.Inspect(testConference(), sess, "portrait", lang.Auto)
+	seen, err := r.Inspect(testConference(), resolve(sess, lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +472,7 @@ func TestInspectSkipsPhotosAndFonts(t *testing.T) {
 	}
 
 	// Card, by contrast, does both.
-	card, err := r.Card(testConference(), sess, "portrait", lang.Auto)
+	card, err := r.Card(testConference(), resolve(sess, lang.Auto), "portrait")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,27 +507,27 @@ func TestCardJoinsSpeakerNamesInTheTalksLanguage(t *testing.T) {
 	r := renderer(t)
 	conf := testConference()
 
-	norwegian := testSession()
-	norwegian.Talk.Title = "Agentic Cloud Ops: Praktisk AI-drevet Kubernetes-drift"
-	norwegian.Talk.Abstract = "Vi ser på hvordan du kan bruke agenter til å drifte " +
+	norwegian := testTalk()
+	norwegian.Title = "Agentic Cloud Ops: Praktisk AI-drevet Kubernetes-drift"
+	norwegian.Abstract = "Vi ser på hvordan du kan bruke agenter til å drifte " +
 		"klyngen, hva som ikke fungerte, og hva vi gjorde med det."
-	norwegian.Talk.Speakers = []cnd.Speaker{
+	norwegian.Speakers = []cnd.Speaker{
 		{ID: "a", Name: "leffen", Slug: "leffen"},
 		{ID: "b", Name: "Lars", Slug: "lars"},
 	}
 
-	english := testSession()
-	english.Talk.Title = "Shift Left with Reliability Testing"
-	english.Talk.Abstract = "This talk walks through what broke and why the obvious " +
+	english := testTalk()
+	english.Title = "Shift Left with Reliability Testing"
+	english.Abstract = "This talk walks through what broke and why the obvious " +
 		"fix made it worse, with the numbers that convinced us."
-	english.Talk.Speakers = []cnd.Speaker{
+	english.Speakers = []cnd.Speaker{
 		{ID: "c", Name: "Imma Valls", Slug: "imma-valls"},
 		{ID: "d", Name: "Tom Donohue", Slug: "tom-donohue"},
 	}
 
 	for _, size := range []string{"portrait", "landscape"} {
 		// Detected from the talk itself.
-		no, err := r.Card(conf, norwegian, size, lang.Auto)
+		no, err := r.Card(conf, resolve(norwegian, lang.Auto), size)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -528,7 +535,7 @@ func TestCardJoinsSpeakerNamesInTheTalksLanguage(t *testing.T) {
 			t.Errorf("%s: card text = %q, want \"leffen og Lars\"", size, got)
 		}
 
-		en, err := r.Card(conf, english, size, lang.Auto)
+		en, err := r.Card(conf, resolve(english, lang.Auto), size)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -537,7 +544,7 @@ func TestCardJoinsSpeakerNamesInTheTalksLanguage(t *testing.T) {
 		}
 
 		// And an explicit language overrides detection, as it does for the copy.
-		forced, err := r.Card(conf, english, size, lang.Norwegian)
+		forced, err := r.Card(conf, resolve(english, lang.Norwegian), size)
 		if err != nil {
 			t.Fatal(err)
 		}

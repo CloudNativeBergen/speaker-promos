@@ -9,23 +9,23 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Find returns the sessions matching a selector.
+// Find returns the talks matching a selector.
 //
 // Selectors are resolved most-specific first so that a precise identifier is
 // never ambiguous: talk id prefix, then speaker slug, then a case-insensitive
 // substring of the talk title, then of a speaker name. The first tier that
 // matches anything wins, which is why `promo export dario-haaland` and
 // `promo export "pods on mars"` both do the obvious thing.
-func (p Program) Find(selector string) []Session {
+func (p Program) Find(selector string) []Talk {
 	q := strings.ToLower(strings.TrimSpace(selector))
 	if q == "" {
 		return nil
 	}
 
-	tiers := []func(Session) bool{
-		func(s Session) bool { return strings.HasPrefix(strings.ToLower(s.Talk.ID), q) },
-		func(s Session) bool {
-			for _, sp := range s.Talk.Speakers {
+	tiers := []func(Talk) bool{
+		func(t Talk) bool { return strings.HasPrefix(strings.ToLower(t.ID), q) },
+		func(t Talk) bool {
+			for _, sp := range t.Speakers {
 				if strings.EqualFold(sp.Slug, q) {
 					return true
 				}
@@ -35,18 +35,18 @@ func (p Program) Find(selector string) []Session {
 		// Speaker slugs keep their Norwegian letters upstream
 		// ("audun-øygard"), and `list` prints them verbatim, so the
 		// ASCII form a user can actually type has to match too.
-		func(s Session) bool {
-			for _, sp := range s.Talk.Speakers {
+		func(t Talk) bool {
+			for _, sp := range t.Speakers {
 				if slugify(sp.Slug) == slugify(q) || slugify(sp.Name) == slugify(q) {
 					return true
 				}
 			}
 			return false
 		},
-		func(s Session) bool { return strings.Contains(strings.ToLower(s.Talk.Title), q) },
-		func(s Session) bool { return strings.Contains(strings.ToLower(slugify(s.Talk.Title)), slugify(q)) },
-		func(s Session) bool {
-			for _, sp := range s.Talk.Speakers {
+		func(t Talk) bool { return strings.Contains(strings.ToLower(t.Title), q) },
+		func(t Talk) bool { return strings.Contains(strings.ToLower(slugify(t.Title)), slugify(q)) },
+		func(t Talk) bool {
+			for _, sp := range t.Speakers {
 				if strings.Contains(strings.ToLower(sp.Name), q) {
 					return true
 				}
@@ -56,10 +56,10 @@ func (p Program) Find(selector string) []Session {
 	}
 
 	for _, match := range tiers {
-		var hits []Session
-		for _, s := range p.Sessions {
-			if match(s) {
-				hits = append(hits, s)
+		var hits []Talk
+		for _, t := range p.Talks {
+			if match(t) {
+				hits = append(hits, t)
 			}
 		}
 		if len(hits) > 0 {
@@ -69,20 +69,43 @@ func (p Program) Find(selector string) []Session {
 	return nil
 }
 
-// FindOne resolves a selector that must identify exactly one session.
-func (p Program) FindOne(selector string) (Session, error) {
+// FindOne resolves a selector that must identify exactly one talk.
+func (p Program) FindOne(selector string) (Talk, error) {
 	hits := p.Find(selector)
 	switch len(hits) {
 	case 0:
-		return Session{}, fmt.Errorf("no talk matches %q", selector)
+		return Talk{}, fmt.Errorf("no talk matches %q", selector)
 	case 1:
 		return hits[0], nil
 	default:
 		var names []string
 		for _, h := range hits {
-			names = append(names, fmt.Sprintf("%q (%s)", h.Talk.Title, h.SpeakerNames("and")))
+			names = append(names, fmt.Sprintf("%q (%s)", h.Title, h.SpeakerNames("and")))
 		}
-		return Session{}, fmt.Errorf("%q matches %d talks: %s", selector, len(hits), strings.Join(names, ", "))
+		return Talk{}, fmt.Errorf("%q matches %d talks: %s", selector, len(hits), strings.Join(names, ", "))
+	}
+}
+
+// Key identifies a speaker in a manifest and in the preview server's URLs.
+//
+// The CMS slug is used where there is one, but it is not always there: the 2026
+// program has a speaker with an empty slug, and keying corrections by slug left
+// him unaddressable — his edit form posted to /speaker/ and 404'd, and his
+// bundle got no override document to type into. Worse, anything that did get
+// stored under the empty key would have applied to every slugless speaker at
+// once.
+//
+// The fallbacks are stable rather than pretty: the name is the one the program
+// submitted, so correcting the name does not move the key, and the CMS id is
+// there for a speaker with neither.
+func (s Speaker) Key() string {
+	switch {
+	case s.Slug != "":
+		return s.Slug
+	case s.Name != "":
+		return slugify(s.Name)
+	default:
+		return s.ID
 	}
 }
 
@@ -118,16 +141,16 @@ func slugify(s string) string {
 	return strings.Trim(nonSlug.ReplaceAllString(b.String(), "-"), "-")
 }
 
-// FileStem is the output filename base for a session's promo, e.g.
+// FileStem is the output filename base for a talk's promo, e.g.
 // "d1-0900-sindre-vik-pods-on-mars". The day and start time lead so that a
 // directory listing falls into schedule order.
-func (s Session) FileStem() string {
-	parts := []string{fmt.Sprintf("d%d", s.Day)}
-	if t := nonSlug.ReplaceAllString(strings.ToLower(s.StartTime), ""); t != "" {
-		parts = append(parts, t)
+func (t Talk) FileStem() string {
+	parts := []string{fmt.Sprintf("d%d", t.Schedule.Day)}
+	if hm := nonSlug.ReplaceAllString(strings.ToLower(t.Schedule.StartTime), ""); hm != "" {
+		parts = append(parts, hm)
 	}
 	var who []string
-	for _, sp := range s.Talk.Speakers {
+	for _, sp := range t.Speakers {
 		if sl := sp.Slug; sl != "" {
 			who = append(who, slugify(sl))
 		} else if sp.Name != "" {
@@ -140,7 +163,7 @@ func (s Session) FileStem() string {
 	if len(who) > 0 {
 		parts = append(parts, strings.Join(who, "_"))
 	}
-	if title := slugify(s.Talk.Title); title != "" {
+	if title := slugify(t.Title); title != "" {
 		parts = append(parts, truncateSlug(title, 48))
 	}
 	return strings.Join(parts, "-")
@@ -178,6 +201,11 @@ func (t Talk) FormatLabel() string {
 	return prettify(t.Format)
 }
 
+// IsWorkshop reports whether the talk is one of the website's workshop
+// formats ("workshop_120", "workshop_240"), which the copy announces
+// differently from a talk.
+func (t Talk) IsWorkshop() bool { return strings.HasPrefix(t.Format, "workshop") }
+
 // LevelLabel renders a talk's audience level for display.
 func (t Talk) LevelLabel() string { return prettify(t.Level) }
 
@@ -193,17 +221,17 @@ func prettify(s string) string {
 	return string(r)
 }
 
-// ShortTrack is the session's track without the website's "Track N: " prefix,
+// ShortTrack is the slot's track without the website's "Track N: " prefix,
 // which is noise everywhere the column or line is already labelled.
-func (s Session) ShortTrack() string {
+func (s Slot) ShortTrack() string {
 	if _, rest, ok := strings.Cut(s.Track, ": "); ok {
 		return rest
 	}
 	return s.Track
 }
 
-// TimeRange renders a session's slot as "09:00–11:00".
-func (s Session) TimeRange() string {
+// TimeRange renders a slot as "09:00–11:00".
+func (s Slot) TimeRange() string {
 	switch {
 	case s.StartTime == "":
 		return ""

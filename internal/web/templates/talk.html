@@ -1,25 +1,25 @@
 {{define "talk.html"}}
-<section class="row {{if .Hidden}}hidden{{end}}" id="{{.Anchor}}">
+<section class="row {{if .Talk.Hidden}}hidden{{end}}" id="{{.Anchor}}">
   <div class="card">
-    <img src="{{.CardURL}}" alt="promo card for {{.Session.Talk.Title}}" loading="lazy">
+    <img src="{{.CardURL}}" alt="promo card for {{.Talk.Title}}" loading="lazy">
     <div class="actions">
-      <a href="/download/{{.Session.Talk.ID}}?size={{.Size}}"><button>Download SVG</button></a>
+      <a href="/download/{{.Talk.ID}}?size={{.Size}}"><button>Download SVG</button></a>
       <a href="{{.CardURL}}" target="_blank"><button>Open full size</button></a>
     </div>
     {{range .Warnings}}<p class="warn">⚠ {{.}}</p>{{end}}
   </div>
 
   <div class="detail">
-    <h2>{{.Session.Talk.Title}}</h2>
+    <h2>{{.Talk.Title}}</h2>
     <p class="slot">
-      Day {{.Session.Day}} · {{.Session.TimeRange}} · {{.Session.ShortTrack}}
-      {{with .Session.Talk.FormatLabel}} · {{.}}{{end}}
+      Day {{.Talk.Schedule.Day}} · {{.Talk.Schedule.TimeRange}} · {{.Talk.Schedule.ShortTrack}}
+      {{with .Talk.FormatLabel}} · {{.}}{{end}}
     </p>
 
     {{/* Talk-level overrides. hx-include picks up the hidden checkbox too. */}}
     <fieldset>
       <legend>Card</legend>
-      <form hx-post="/talk/{{.Session.Talk.ID}}" hx-target="#{{.Anchor}}" hx-swap="outerHTML">
+      <form hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}" hx-swap="outerHTML">
         <input type="hidden" name="size" value="{{.Size}}">
         <div class="grid">
           <div>
@@ -28,30 +28,30 @@
                    sentence case in Norwegian — a wrong result is visible at
                    once and corrected by typing. */}}
               <button type="button" class="wand" title="Fix capitalisation"
-                      hx-post="/talk/{{.Session.Talk.ID}}/titlecase"
+                      hx-post="/talk/{{.Talk.ID}}/titlecase"
                       hx-target="#{{.Anchor}}" hx-swap="outerHTML"
                       hx-include="closest form">🪄</button>
             </label>
             <input type="text" id="title-{{.Anchor}}" name="displayTitle"
-                   value="{{.Session.Talk.Title}}" placeholder="as submitted"
-                   hx-post="/talk/{{.Session.Talk.ID}}" hx-target="#{{.Anchor}}"
+                   value="{{.Talk.Title}}" placeholder="as submitted"
+                   hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
                    hx-swap="outerHTML" hx-trigger="change" hx-include="closest form">
           </div>
           <div>
             <label for="lang-{{.Anchor}}">Copy language</label>
             <select id="lang-{{.Anchor}}" name="language"
-                    hx-post="/talk/{{.Session.Talk.ID}}" hx-target="#{{.Anchor}}"
+                    hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
                     hx-swap="outerHTML" hx-include="closest form">
-              <option value="" {{if eq .Talk.Language ""}}selected{{end}}>auto — {{.Detected}}</option>
-              <option value="en" {{if eq .Talk.Language "en"}}selected{{end}}>English</option>
-              <option value="no" {{if eq .Talk.Language "no"}}selected{{end}}>Norsk</option>
+              <option value="" {{if eq .Override.Language ""}}selected{{end}}>auto — {{.Talk.Detected}}</option>
+              <option value="en" {{if eq .Override.Language "en"}}selected{{end}}>English</option>
+              <option value="no" {{if eq .Override.Language "no"}}selected{{end}}>Norsk</option>
             </select>
           </div>
           <div>
             <label>Exclude from bulk renders</label>
             <span class="check">
-              <input type="checkbox" name="hidden" value="1" {{if .Hidden}}checked{{end}}
-                     hx-post="/talk/{{.Session.Talk.ID}}" hx-target="#{{.Anchor}}"
+              <input type="checkbox" name="hidden" value="1" {{if .Talk.Hidden}}checked{{end}}
+                     hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
                      hx-swap="outerHTML" hx-include="closest form">
               hidden
             </span>
@@ -61,8 +61,8 @@
     </fieldset>
 
     {{range .Speakers}}
-    <fieldset class="{{if .Guessed}}guessed{{end}}">
-      <legend>{{.DisplayName}}</legend>
+    <fieldset class="{{if .Speaker.Role.Guessed}}guessed{{end}}">
+      <legend>{{.Speaker.Name}}</legend>
       {{/* Every input posts on change, so there is no save button and nothing
            to lose. The manifest is written on each one.
 
@@ -71,9 +71,9 @@
            that was dead: `find` selects the first matching descendant, which
            is the hidden talk input below, and hidden inputs never fire change.
            Every speaker field silently did nothing in the browser. */}}
-      <form hx-post="/speaker/{{.Speaker.Slug}}" hx-target="#{{$.Anchor}}" hx-swap="outerHTML"
+      <form hx-post="/speaker/{{.Speaker.Key}}" hx-target="#{{$.Anchor}}" hx-swap="outerHTML"
             hx-trigger="change" hx-include="closest form">
-        <input type="hidden" name="talk" value="{{$.Session.Talk.ID}}">
+        <input type="hidden" name="talk" value="{{$.Talk.ID}}">
         <input type="hidden" name="size" value="{{$.Size}}">
         {{/* One row per entry in speakerView.Fields, so a new correctable
              field is a line of Go rather than another copy of this markup. */}}
@@ -90,7 +90,7 @@
     <div class="draft">
       <header>
         <span>{{.Draft.Platform}}</span>
-        <span class="lang">{{$.Language}}</span>
+        <span class="lang">{{$.Talk.Language}}</span>
         <span class="count {{if .Over}}over{{end}}">{{.Count}}</span>
         {{if .Limit}}<span class="meter"><i class="{{if .Over}}over{{end}}" style="width:{{.Percent}}%"></i></span>{{end}}
         <button type="button" data-copy="copy-{{$.Anchor}}-{{.Draft.Platform}}">Copy</button>

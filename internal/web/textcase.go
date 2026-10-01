@@ -25,10 +25,9 @@ func (s *Server) handleTalkTitleCase(w http.ResponseWriter, r *http.Request) {
 	// title is a few words and detection needs prose. "Praktisk AI-drevet
 	// Kubernetes-drift" carries no Norwegian function words at all and reads as
 	// English on its own.
-	id := r.PathValue("id")
-	language := s.cardLanguage(id)
-	if sess, ok := s.session(id); ok {
-		language = language.Resolve(sess.Talk.Title, sess.Talk.Abstract)
+	language := s.opts.Language
+	if t, ok := s.resolver.ByID(r.PathValue("id")); ok {
+		language = t.Language
 	}
 	r.Form.Set("displayTitle", textcase.Title(r.FormValue("displayTitle"), language))
 	s.handleTalkUpdate(w, r)

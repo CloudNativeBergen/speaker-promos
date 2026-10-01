@@ -6,6 +6,7 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
+	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
 func norwegianInput() Input {
@@ -14,19 +15,21 @@ func norwegianInput() Input {
 			Title: "Cloud Native Days Norway 2026", StartDate: "2026-10-26",
 			EndDate: "2026-10-27", Domain: "2026.cloudnativedays.no",
 		},
-		Session: cnd.Session{
-			Date: "2026-10-26", Day: 1, StartTime: "09:00", EndTime: "11:00",
-			Track: "Track 1: Full Day Workshops",
+		Talk: promo.Talk{
 			Talk: cnd.Talk{
 				Title:    "Kan skyen kjøre på en brødrister?",
 				Abstract: "Vi ser på hvordan det ikke fungerte og hva vi gjorde med det.",
 				Format:   "workshop_120",
+				Schedule: cnd.Slot{
+					Date: "2026-10-26", Day: 1, StartTime: "09:00", EndTime: "11:00",
+					Track: "Track 1: Full Day Workshops",
+				},
 			},
+			Speakers: []promo.Speaker{withRole(
+				speaker(cnd.Speaker{Name: "Dario Haaland", Slug: "dario-haaland"}),
+				promo.Role{Employer: "Bysten Labs"},
+			)},
 		},
-		Speakers: []Speaker{{
-			Speaker: cnd.Speaker{Name: "Dario Haaland", Slug: "dario-haaland"},
-			Role:    Role{Employer: "Bysten Labs"},
-		}},
 	}
 }
 
@@ -57,9 +60,9 @@ func TestNorwegianDraftHasNoEnglishScaffolding(t *testing.T) {
 
 func TestNorwegianJoinsNamesWithOg(t *testing.T) {
 	in := norwegianInput()
-	in.Speakers = append(in.Speakers, Speaker{
-		Speaker: cnd.Speaker{Name: "Solveig Ulriksen"}, Role: Role{Employer: "Skyvakt"},
-	})
+	in.Talk.Speakers = append(in.Talk.Speakers, withRole(
+		speaker(cnd.Speaker{Name: "Solveig Ulriksen"}), promo.Role{Employer: "Skyvakt"},
+	))
 	got := hook(in)
 	if !strings.Contains(got, "og Solveig Ulriksen") {
 		t.Errorf("hook = %q, want the names joined with \"og\"", got)
@@ -72,7 +75,7 @@ func TestNorwegianJoinsNamesWithOg(t *testing.T) {
 
 func TestEnglishIsUnchanged(t *testing.T) {
 	in := norwegianInput()
-	in.Language = lang.English
+	in.Talk.Language = lang.English
 	got := hook(in)
 	if !strings.Contains(got, "is running a workshop at Cloud Native Days Norway 2026") {
 		t.Errorf("hook = %q", got)
@@ -84,8 +87,8 @@ func TestEnglishIsUnchanged(t *testing.T) {
 
 func TestNorwegianTalkDraftStaysInsideTheBlueskyLimit(t *testing.T) {
 	in := norwegianInput()
-	in.Session.Talk.Title = strings.Repeat("Veldig lang tittel om plattformer ", 5)
-	in.Session.Talk.Abstract = strings.Repeat("Vi ser på hvordan det ikke fungerte. ", 30)
+	in.Talk.Title = strings.Repeat("Veldig lang tittel om plattformer ", 5)
+	in.Talk.Abstract = strings.Repeat("Vi ser på hvordan det ikke fungerte. ", 30)
 	d := Bluesky(in)
 	if d.Runes() > BlueskyLimit {
 		t.Errorf("draft is %d runes:\n%s", d.Runes(), d.Text)
@@ -108,7 +111,7 @@ func TestQuoteTitleRespectsExistingQuotes(t *testing.T) {
 // feature exists to fix.
 func TestUnknownLanguageFallsBackToDetection(t *testing.T) {
 	in := norwegianInput()
-	in.Language = lang.Language("sv")
+	in.Talk.Language = lang.Language("sv")
 	if got := hook(in); !strings.Contains(got, "holder workshop") {
 		t.Errorf("hook = %q, want the detected Norwegian", got)
 	}

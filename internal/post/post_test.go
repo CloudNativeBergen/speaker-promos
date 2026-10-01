@@ -6,95 +6,8 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
+	"github.com/vehagn/speaker-promos/internal/promo"
 )
-
-// These are the exact title strings the 2026 program contains, which is the
-// reason the heuristic looks the way it does.
-func TestParseRole(t *testing.T) {
-	cases := []struct {
-		in       string
-		job      string
-		employer string
-	}{
-		{"Senior Platform Engineer at Vestbit", "Senior Platform Engineer", "Vestbit"},
-		{"Senior Consultant @Nordvik", "Senior Consultant", "Nordvik"},
-		{"Utvikler hos Skyvakt", "Utvikler", "Skyvakt"},
-		{"Developer Advocate at Fjordstack", "Developer Advocate", "Fjordstack"},
-		{"Engineering Manager at Tindra Systems", "Engineering Manager", "Tindra Systems"},
-		// No separator: the whole string is taken as the employer, because the
-		// cases that occur in practice are company names and naming the wrong
-		// thing is worse than naming nothing.
-		{"Bysten Labs", "", "Bysten Labs"},
-		{"", "", ""},
-		{"   ", "", ""},
-		// " at " must not be matched inside " hos ", and the longest separator
-		// wins.
-		{"Platform lead hos Tindra at Oslo", "Platform lead", "Tindra at Oslo"},
-	}
-	for _, c := range cases {
-		got := ParseRole(c.in)
-		if got.Job != c.job || got.Employer != c.employer {
-			t.Errorf("ParseRole(%q) = {%q, %q}, want {%q, %q}",
-				c.in, got.Job, got.Employer, c.job, c.employer)
-		}
-		if c.employer != "" && !got.Guessed {
-			t.Errorf("ParseRole(%q) should be marked as guessed", c.in)
-		}
-	}
-}
-
-// " i " is deliberately NOT a separator: it is the lang.Norwegian "in" but also
-// appears mid-phrase, where splitting on it produces nonsense.
-func TestParseRoleLeavesNorwegianIAlone(t *testing.T) {
-	got := ParseRole("Manager og faggruppeleder Platform Engineering i Tindra")
-	if got.Job != "" {
-		t.Errorf("Job = %q, want the whole string kept as the employer", got.Job)
-	}
-	if !strings.Contains(got.Employer, "Tindra") {
-		t.Errorf("Employer = %q", got.Employer)
-	}
-}
-
-func TestOverridesWin(t *testing.T) {
-	sp := cnd.Speaker{Slug: "dario-haaland", Name: "Dario Haaland", Title: "Bysten Labs"}
-	o := Overrides{"dario-haaland": {
-		Employer: "Bysten Labs AS",
-		Job:      "Infrastructure Engineer",
-		Links: cnd.Links{
-			LinkedIn: "https://www.linkedin.com/in/dario",
-			Bluesky:  "@dario.example",
-		},
-	}}
-
-	r := o.RoleFor(sp)
-	if r.Employer != "Bysten Labs AS" || r.Job != "Infrastructure Engineer" {
-		t.Errorf("RoleFor = %+v", r)
-	}
-	// An overridden employer is no longer a guess, so the copy stops asking
-	// the user to check it.
-	if r.Guessed {
-		t.Error("an overridden employer should not be marked as guessed")
-	}
-
-	links := o.LinksFor(sp, cnd.Links{Bluesky: "scraped.example", GitHub: "kept"})
-	if links.LinkedIn != "https://www.linkedin.com/in/dario" {
-		t.Errorf("LinkedIn = %q", links.LinkedIn)
-	}
-	// A leading @ in the config is stripped so it is not doubled in the post.
-	if links.Bluesky != "dario.example" {
-		t.Errorf("Bluesky = %q, want the @ stripped", links.Bluesky)
-	}
-	// Scraped values with no override survive.
-	if links.GitHub != "kept" {
-		t.Errorf("GitHub = %q", links.GitHub)
-	}
-
-	// A speaker with no entry is untouched.
-	other := cnd.Speaker{Slug: "someone-else", Title: "Dev at Acme"}
-	if got := o.RoleFor(other); got.Employer != "Acme" {
-		t.Errorf("unrelated speaker = %+v", got)
-	}
-}
 
 func testInput() Input {
 	return Input{
@@ -106,25 +19,44 @@ func testInput() Input {
 			Country:   "Norway",
 			Domain:    "2026.cloudnativedays.no",
 		},
-		Session: cnd.Session{
-			Date:      "2026-10-26",
-			Day:       1,
-			Track:     "Track 2: Platform Engineering",
-			StartTime: "13:20",
-			EndTime:   "13:45",
+		Talk: promo.Talk{
 			Talk: cnd.Talk{
 				Title:    "Pods on Mars",
 				Abstract: "Running Kubernetes with no upstream at all. A talk about self-sufficiency, and what breaks when the registry is unreachable.",
 				Format:   "presentation_25",
 				Topics:   []string{"Cloud Infrastructure & Operations", "Kubernetes & Orchestration"},
+				Schedule: cnd.Slot{
+					Date:      "2026-10-26",
+					Day:       1,
+					Track:     "Track 2: Platform Engineering",
+					StartTime: "13:20",
+					EndTime:   "13:45",
+				},
 			},
+			Speakers: []promo.Speaker{withLinks(
+				speaker(cnd.Speaker{Name: "Sindre Vik", Slug: "sindre-vik", Title: "Platform Engineer at Fjordstack"}),
+				cnd.Links{Bluesky: "sindre.example", LinkedIn: "https://www.linkedin.com/in/sindre"},
+			)},
 		},
-		Speakers: []Speaker{{
-			Speaker: cnd.Speaker{Name: "Sindre Vik", Slug: "sindre-vik", Title: "Platform Engineer at Fjordstack"},
-			Role:    ParseRole("Platform Engineer at Fjordstack"),
-			Links:   cnd.Links{Bluesky: "sindre.example", LinkedIn: "https://www.linkedin.com/in/sindre"},
-		}},
 	}
+}
+
+// speaker is a presenter as the resolver gives them with no corrections.
+func speaker(src cnd.Speaker) promo.Speaker {
+	return promo.Speaker{
+		Source: src, Key: src.Key(), Name: src.Name, Title: src.Title,
+		Image: src.Image, Role: promo.ParseRole(src.Title),
+	}
+}
+
+func withLinks(sp promo.Speaker, links cnd.Links) promo.Speaker {
+	sp.Links = links
+	return sp
+}
+
+func withRole(sp promo.Speaker, role promo.Role) promo.Speaker {
+	sp.Role = role
+	return sp
 }
 
 func TestLinkedInDraft(t *testing.T) {
@@ -163,13 +95,12 @@ func TestLinkedInDraft(t *testing.T) {
 // checked against inputs designed to blow past it.
 func TestBlueskyRespectsLimit(t *testing.T) {
 	in := testInput()
-	in.Session.Talk.Title = strings.Repeat("An Extremely Long Talk Title About Kubernetes ", 6)
-	in.Session.Talk.Abstract = strings.Repeat("Filler prose that would never fit. ", 40)
-	in.Speakers = append(in.Speakers, Speaker{
-		Speaker: cnd.Speaker{Name: "Another Very Long Speaker Name", Slug: "b", Title: "Principal Engineer at A Company With A Long Name"},
-		Role:    ParseRole("Principal Engineer at A Company With A Long Name"),
-		Links:   cnd.Links{Bluesky: "another.speaker.example"},
-	})
+	in.Talk.Title = strings.Repeat("An Extremely Long Talk Title About Kubernetes ", 6)
+	in.Talk.Abstract = strings.Repeat("Filler prose that would never fit. ", 40)
+	in.Talk.Speakers = append(in.Talk.Speakers, withLinks(
+		speaker(cnd.Speaker{Name: "Another Very Long Speaker Name", Slug: "b", Title: "Principal Engineer at A Company With A Long Name"}),
+		cnd.Links{Bluesky: "another.speaker.example"},
+	))
 
 	d := Bluesky(in)
 	if d.Runes() > BlueskyLimit {
@@ -206,7 +137,7 @@ func TestBlueskyKeepsBothSlotAndTeaser(t *testing.T) {
 // reserved before the optional sections are considered.
 func TestBlueskyAlwaysKeepsTheLink(t *testing.T) {
 	in := testInput()
-	in.Session.Talk.Title = strings.Repeat("x", 260)
+	in.Talk.Title = strings.Repeat("x", 260)
 	d := Bluesky(in)
 	if !strings.Contains(d.Text, "2026.cloudnativedays.no") {
 		t.Errorf("link was cut:\n%s", d.Text)
@@ -222,22 +153,22 @@ func TestHookVerbAgreement(t *testing.T) {
 		t.Errorf("one speaker: %q", got)
 	}
 
-	in.Speakers = append(in.Speakers, Speaker{Speaker: cnd.Speaker{Name: "Second Person"}})
+	in.Talk.Speakers = append(in.Talk.Speakers, speaker(cnd.Speaker{Name: "Second Person"}))
 	if got := hook(in); !strings.Contains(got, "are speaking") {
 		t.Errorf("two speakers: %q", got)
 	}
 
-	in.Session.Talk.Format = "workshop_120"
+	in.Talk.Format = "workshop_120"
 	if got := hook(in); !strings.Contains(got, "are running a workshop") {
 		t.Errorf("workshop, two speakers: %q", got)
 	}
-	in.Speakers = in.Speakers[:1]
+	in.Talk.Speakers = in.Talk.Speakers[:1]
 	if got := hook(in); !strings.Contains(got, "is running a workshop") {
 		t.Errorf("workshop, one speaker: %q", got)
 	}
 
 	// A speaker with no known employer is named without empty parentheses.
-	in.Speakers[0].Role = Role{}
+	in.Talk.Speakers[0].Role = promo.Role{}
 	if got := hook(in); strings.Contains(got, "()") {
 		t.Errorf("empty parentheses: %q", got)
 	}
@@ -254,14 +185,14 @@ func TestNotesFlagGuessesAndGaps(t *testing.T) {
 	}
 
 	// A speaker with a known-good employer and a handle produces no notes.
-	in.Speakers[0].Role = Role{Employer: "Fjordstack", Guessed: false}
+	in.Talk.Speakers[0].Role = promo.Role{Employer: "Fjordstack", Guessed: false}
 	if n := Bluesky(in).Notes; len(n) != 0 {
 		t.Errorf("notes for complete data = %v", n)
 	}
 
 	// Missing employer and missing handle are both reported.
-	in.Speakers[0].Role = Role{}
-	in.Speakers[0].Links = cnd.Links{}
+	in.Talk.Speakers[0].Role = promo.Role{}
+	in.Talk.Speakers[0].Links = cnd.Links{}
 	joined = strings.Join(Bluesky(in).Notes, "\n")
 	if !strings.Contains(joined, "no employer known") || !strings.Contains(joined, "no Bluesky handle") {
 		t.Errorf("notes = %q", joined)
@@ -280,7 +211,7 @@ func TestMentionsListsProfiles(t *testing.T) {
 	}
 
 	in := testInput()
-	in.Speakers[0].Links = cnd.Links{}
+	in.Talk.Speakers[0].Links = cnd.Links{}
 	if got := Mentions(in); len(got) != 0 {
 		t.Errorf("Mentions with no links = %v", got)
 	}
@@ -317,10 +248,10 @@ func TestHashtagify(t *testing.T) {
 // whoever happened to be listed first.
 func TestLinkPointsAtTheProgramNotASpeaker(t *testing.T) {
 	in := testInput()
-	in.Speakers = append(in.Speakers, Speaker{
-		Speaker: cnd.Speaker{Name: "Second Person", Slug: "second-person"},
-		Role:    Role{Employer: "Acme"},
-	})
+	in.Talk.Speakers = append(in.Talk.Speakers, withRole(
+		speaker(cnd.Speaker{Name: "Second Person", Slug: "second-person"}),
+		promo.Role{Employer: "Acme"},
+	))
 
 	for _, d := range []Draft{LinkedIn(in), Bluesky(in)} {
 		if !strings.Contains(d.Text, "https://2026.cloudnativedays.no/program") {

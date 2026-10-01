@@ -16,8 +16,8 @@ func testBaseline() ImportOptions {
 	}
 	titles := map[string]string{"talk-1": "Kan skyen kjøre på en brødrister?"}
 	return ImportOptions{
-		SpeakerBaseline: func(slug string) (SpeakerSpec, bool) {
-			s, ok := base[slug]
+		SpeakerBaseline: func(key string) (SpeakerSpec, bool) {
+			s, ok := base[key]
 			return s, ok
 		},
 		TalkBaseline: func(id string) (string, bool) {

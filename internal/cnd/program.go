@@ -69,7 +69,7 @@ type rawDay struct {
 	} `json:"tracks"`
 }
 
-// Load fetches the program page and decodes the conference and its sessions.
+// Load fetches the program page and decodes the conference and its talks.
 func (l *Loader) Load() (*Program, error) {
 	url := fmt.Sprintf("https://%s/program", l.Domain)
 	html, err := l.Cache.Get(url)
@@ -87,11 +87,11 @@ func (l *Loader) Load() (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	sessions, err := decodeSessions(flight, rows)
+	talks, err := decodeTalks(flight, rows)
 	if err != nil {
 		return nil, err
 	}
-	return &Program{Conference: conf, Sessions: sessions}, nil
+	return &Program{Conference: conf, Talks: talks}, nil
 }
 
 func decodeConference(flight string, rows map[string]string, domain string) (Conference, error) {
@@ -156,7 +156,7 @@ func svgOrEmpty(s string) string {
 	return ""
 }
 
-func decodeSessions(flight string, rows map[string]string) ([]Session, error) {
+func decodeTalks(flight string, rows map[string]string) ([]Talk, error) {
 	raw, err := rsc.FindObject(flight, `"schedules":`, "schedules")
 	if err != nil {
 		return nil, fmt.Errorf("locating schedule: %w", err)
@@ -181,7 +181,7 @@ func decodeSessions(flight string, rows map[string]string) ([]Session, error) {
 	// guarantee.
 	sort.SliceStable(days, func(i, j int) bool { return days[i].Date < days[j].Date })
 
-	var out []Session
+	var out []Talk
 	for i, d := range days {
 		for _, tr := range d.Tracks {
 			for _, slot := range tr.Talks {
@@ -189,14 +189,15 @@ func decodeSessions(flight string, rows map[string]string) ([]Session, error) {
 				if slot.Talk == nil || slot.Talk.Title == "" {
 					continue
 				}
-				out = append(out, Session{
-					Talk:      convertTalk(*slot.Talk),
+				talk := convertTalk(*slot.Talk)
+				talk.Schedule = Slot{
 					Date:      d.Date,
 					Day:       i + 1,
 					Track:     tr.TrackTitle,
 					StartTime: slot.StartTime,
 					EndTime:   slot.EndTime,
-				})
+				}
+				out = append(out, talk)
 			}
 		}
 	}
@@ -205,13 +206,14 @@ func decodeSessions(flight string, rows map[string]string) ([]Session, error) {
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Date != out[j].Date {
-			return out[i].Date < out[j].Date
+		a, b := out[i].Schedule, out[j].Schedule
+		if a.Date != b.Date {
+			return a.Date < b.Date
 		}
-		if out[i].StartTime != out[j].StartTime {
-			return out[i].StartTime < out[j].StartTime
+		if a.StartTime != b.StartTime {
+			return a.StartTime < b.StartTime
 		}
-		return out[i].Track < out[j].Track
+		return a.Track < b.Track
 	})
 	return out, nil
 }
@@ -239,6 +241,7 @@ func convertTalk(r rawTalk) Talk {
 		Abstract: flattenPortableText(r.Description),
 		Format:   r.Format,
 		Level:    r.Level,
+		Status:   r.Status,
 		Topics:   topics,
 		Speakers: speakers,
 	}

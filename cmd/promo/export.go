@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/export"
 	"github.com/vehagn/speaker-promos/internal/lang"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
 	"github.com/vehagn/speaker-promos/internal/theme"
@@ -60,7 +60,13 @@ func cmdExport(args []string) error {
 	if err != nil {
 		return err
 	}
-	sessions, err := selectSessions(program, set, *all, fs.Args())
+	resolver := &promo.Resolver{
+		Program:  program,
+		Set:      set,
+		Language: copyLang,
+		Links:    linkFetcher(loader, *noLinks, nil),
+	}
+	talks, err := selectTalks(resolver, *all, fs.Args())
 	if err != nil {
 		return err
 	}
@@ -82,22 +88,19 @@ func cmdExport(args []string) error {
 
 	exporter := &export.Exporter{
 		Renderer:     renderer,
-		Set:          set,
-		Program:      program,
-		Language:     copyLang,
+		Resolver:     resolver,
 		Formats:      wantFormats,
 		Sizes:        wantSizes,
 		RasterWidth:  *width,
 		JPEGQuality:  *quality,
-		LinksFor:     speakerLinkFetcher(loader, *noLinks),
 		Converter:    conv,
 		HasConverter: hasConv,
 	}
 
 	var warned []string
 	files := 0
-	for _, s := range sessions {
-		res, err := exporter.Write(*out, s)
+	for _, t := range talks {
+		res, err := exporter.Write(*out, t)
 		if err != nil {
 			return err
 		}
@@ -108,7 +111,7 @@ func cmdExport(args []string) error {
 		}
 	}
 
-	fmt.Printf("\n%d talks, %d files under %s/\n", len(sessions), files, *out)
+	fmt.Printf("\n%d talks, %d files under %s/\n", len(talks), files, *out)
 	if needsRaster && !hasConv {
 		fmt.Fprint(os.Stderr, "\n"+raster.NoConverterMessage)
 	}
@@ -119,29 +122,6 @@ func cmdExport(args []string) error {
 		}
 	}
 	return nil
-}
-
-// speakerLinkFetcher returns a per-speaker link lookup that fetches at most
-// once per speaker, since a speaker on two talks would otherwise be fetched
-// twice and each page is around 3 MB.
-func speakerLinkFetcher(loader *cnd.Loader, skip bool) func(cnd.Speaker) cnd.Links {
-	if skip {
-		return nil
-	}
-	seen := map[string]cnd.Links{}
-	return func(sp cnd.Speaker) cnd.Links {
-		if sp.Slug == "" {
-			return cnd.Links{}
-		}
-		if l, ok := seen[sp.Slug]; ok {
-			return l
-		}
-		// Handles only suggest mentions, so a failure is not worth aborting an
-		// export over; the copy simply goes out without them.
-		l, _ := loader.SpeakerLinks(sp)
-		seen[sp.Slug] = l
-		return l
-	}
 }
 
 // resolveSizes expands the --size flag against the theme's defined sizes.

@@ -1,10 +1,9 @@
-// Package post drafts social copy to accompany a promo card.
-package post
+package promo
 
 import (
 	"strings"
 
-	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/manifest"
 )
 
 // Role is a speaker's job title and employer, as far as they can be determined.
@@ -72,46 +71,21 @@ func ParseRole(title string) Role {
 	return Role{Employer: title, Guessed: true}
 }
 
-// Overrides maps a speaker slug to corrections for the guessed data.
-//
-// The heuristic above is wrong often enough that a correction file is part of
-// the design rather than an afterthought; see `promo post --speakers`.
-type Overrides map[string]Override
-
-// Override corrects or supplements what is known about one speaker.
-type Override struct {
-	Employer string
-	Job      string
-	Links    cnd.Links
-}
-
-// RoleFor resolves a speaker's role, preferring an override over the guess.
-func (o Overrides) RoleFor(s cnd.Speaker) Role {
-	r := ParseRole(s.Title)
-	ov, ok := o[s.Slug]
-	if !ok {
-		return r
+// RoleLine composes a speaker override into the line a card prints under the
+// names, following the upstream convention ("Senior Platform Engineer at
+// Vestbit"). It returns "" when the override says nothing about the role, so
+// the upstream value is kept.
+func RoleLine(spec manifest.SpeakerSpec) string {
+	switch {
+	// An explicit title wins: it is the escape hatch for roles that do not fit
+	// the "<job> at <employer>" shape at all.
+	case spec.Title != "":
+		return spec.Title
+	case spec.Job != "" && spec.Employer != "":
+		return spec.Job + " at " + spec.Employer
+	case spec.Job != "":
+		return spec.Job
+	default:
+		return spec.Employer
 	}
-	if ov.Employer != "" {
-		r.Employer = ov.Employer
-		r.Guessed = false
-	}
-	if ov.Job != "" {
-		r.Job = ov.Job
-	}
-	return r
-}
-
-// LinksFor merges scraped links with any overrides, which win.
-func (o Overrides) LinksFor(s cnd.Speaker, scraped cnd.Links) cnd.Links {
-	ov, ok := o[s.Slug]
-	if !ok {
-		return scraped
-	}
-	// A handle may be written with the "@" people say it with; stripping it here
-	// keeps it from being doubled in a post.
-	over := ov.Links
-	over.Bluesky = strings.TrimPrefix(over.Bluesky, "@")
-	over.X = strings.TrimPrefix(over.X, "@")
-	return scraped.Merge(over)
 }

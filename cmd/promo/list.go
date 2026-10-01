@@ -26,14 +26,14 @@ func cmdList(args []string) error {
 		return err
 	}
 
-	sessions := program.Sessions
+	talks := program.Talks
 	if *day > 0 {
-		sessions = filter(sessions, func(s cnd.Session) bool { return s.Day == *day })
+		talks = filter(talks, func(t cnd.Talk) bool { return t.Schedule.Day == *day })
 	}
 	if *speaker != "" {
 		q := strings.ToLower(*speaker)
-		sessions = filter(sessions, func(s cnd.Session) bool {
-			for _, sp := range s.Talk.Speakers {
+		talks = filter(talks, func(t cnd.Talk) bool {
+			for _, sp := range t.Speakers {
 				if strings.EqualFold(sp.Slug, q) || strings.Contains(strings.ToLower(sp.Name), q) {
 					return true
 				}
@@ -45,23 +45,23 @@ func cmdList(args []string) error {
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(sessions)
+		return enc.Encode(talks)
 	}
 
 	c := program.Conference
 	fmt.Printf("%s — %s, %s\n", c.Title, c.DateRange(), c.Location())
-	fmt.Printf("%d talks, %d speakers\n\n", len(sessions), len(cnd.Program{Sessions: sessions}.Speakers()))
+	fmt.Printf("%d talks, %d speakers\n\n", len(talks), len(cnd.Program{Talks: talks}.Speakers()))
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "DAY\tTIME\tTRACK\tSPEAKERS\tTALK\tSELECTOR")
-	for _, s := range sessions {
+	for _, t := range talks {
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n",
-			s.Day,
-			s.TimeRange(),
-			truncate(s.ShortTrack(), 18),
-			truncate(s.SpeakerNames("and"), 28),
-			truncate(s.Talk.Title, 44),
-			primarySelector(s),
+			t.Schedule.Day,
+			t.Schedule.TimeRange(),
+			truncate(t.Schedule.ShortTrack(), 18),
+			truncate(t.SpeakerNames("and"), 28),
+			truncate(t.Title, 44),
+			primarySelector(t),
 		)
 	}
 	return w.Flush()
@@ -69,20 +69,20 @@ func cmdList(args []string) error {
 
 // primarySelector is the shortest thing the user can copy to select a talk
 // again: its first speaker's slug, falling back to a talk id prefix.
-func primarySelector(s cnd.Session) string {
-	for _, sp := range s.Talk.Speakers {
+func primarySelector(t cnd.Talk) string {
+	for _, sp := range t.Speakers {
 		if sp.Slug != "" {
 			return sp.Slug
 		}
 	}
-	if len(s.Talk.ID) >= 8 {
-		return s.Talk.ID[:8]
+	if len(t.ID) >= 8 {
+		return t.ID[:8]
 	}
-	return s.Talk.ID
+	return t.ID
 }
 
-func filter(in []cnd.Session, keep func(cnd.Session) bool) []cnd.Session {
-	var out []cnd.Session
+func filter(in []cnd.Talk, keep func(cnd.Talk) bool) []cnd.Talk {
+	var out []cnd.Talk
 	for _, s := range in {
 		if keep(s) {
 			out = append(out, s)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/manifest"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
 	"github.com/vehagn/speaker-promos/internal/theme"
@@ -26,19 +27,25 @@ func testConference() cnd.Conference {
 	}
 }
 
-func testSession() cnd.Session {
-	return cnd.Session{
-		Date: "2026-10-26", Day: 1, Track: "Track 1: Full Day Workshops",
-		StartTime: "09:00", EndTime: "11:00",
-		Talk: cnd.Talk{
-			ID: "talk-1", Title: "Kan skyen kjøre på en brødrister?",
-			Format: "workshop_120", Level: "intermediate",
-			Abstract: "Plattformer bygges best når teamet forstår hele stacken.",
-			Speakers: []cnd.Speaker{{
-				ID: "sp-1", Name: "Dario Haaland", Slug: "dario-haaland", Title: "Bysten Labs",
-			}},
+func testTalk() cnd.Talk {
+	return cnd.Talk{
+		ID: "talk-1", Title: "Kan skyen kjøre på en brødrister?",
+		Format: "workshop_120", Level: "intermediate",
+		Abstract: "Plattformer bygges best når teamet forstår hele stacken.",
+		Speakers: []cnd.Speaker{{
+			ID: "sp-1", Name: "Dario Haaland", Slug: "dario-haaland", Title: "Bysten Labs",
+		}},
+		Schedule: cnd.Slot{
+			Date: "2026-10-26", Day: 1, Track: "Track 1: Full Day Workshops",
+			StartTime: "09:00", EndTime: "11:00",
 		},
 	}
+}
+
+// write resolves a talk against the exporter's manifest as it stands, the way
+// both callers do, and writes its bundle.
+func (e *Exporter) write(root string, t cnd.Talk) (Result, error) {
+	return e.Write(root, e.Resolver.Talk(t))
 }
 
 // Photos are off (Images nil) so nothing touches the network.
@@ -54,10 +61,13 @@ func newExporter(t *testing.T, formats []string, withRaster bool) (*Exporter, st
 		t.Fatal(err)
 	}
 	e := &Exporter{
-		Renderer: r, Set: manifest.New(filepath.Join(dir, "promos.yaml")),
-		Program: &cnd.Program{
-			Conference: testConference(),
-			Sessions:   []cnd.Session{testSession()},
+		Renderer: r,
+		Resolver: &promo.Resolver{
+			Set: manifest.New(filepath.Join(dir, "promos.yaml")),
+			Program: &cnd.Program{
+				Conference: testConference(),
+				Talks:      []cnd.Talk{testTalk()},
+			},
 		},
 		Formats: formats, Sizes: []string{"portrait"},
 	}
@@ -99,9 +109,9 @@ func TestParseFormats(t *testing.T) {
 // copy and the manifest that produced them.
 func TestWriteBundleLayout(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	sess := testSession()
+	sess := testTalk()
 
-	res, err := e.Write(root, sess)
+	res, err := e.write(root, sess)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +139,7 @@ func TestWriteBundleLayout(t *testing.T) {
 // manifest — those are the parts you cannot regenerate from the SVG.
 func TestWriteWithoutRasteriserStillWritesEverythingElse(t *testing.T) {
 	e, root := newExporter(t, AllFormats, false)
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +168,7 @@ func TestRasterOnlyBundleDoesNotKeepTheSVG(t *testing.T) {
 	e.Converter, e.HasConverter = conv, true
 	e.RasterWidth = 200 // keep the test fast
 
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +191,7 @@ func TestRasterFormatsWhenAvailable(t *testing.T) {
 	e, root := newExporter(t, AllFormats, true)
 	e.RasterWidth = 200
 
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +213,7 @@ func TestRasterFormatsWhenAvailable(t *testing.T) {
 // be published by accident.
 func TestCopyFilesHoldOnlyThePostBody(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +252,7 @@ func TestCopyFilesHoldOnlyThePostBody(t *testing.T) {
 // can be edited and merged back rather than being a blank template.
 func TestManifestIsPrefilledAndReloadable(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +284,7 @@ func TestManifestIsPrefilledAndReloadable(t *testing.T) {
 // noise in every folder.
 func TestManifestOmitsAnEmptyTalkOverride(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,10 +294,10 @@ func TestManifestOmitsAnEmptyTalkOverride(t *testing.T) {
 	}
 
 	// With a display title set, it appears.
-	if err := e.Set.SetTalk("talk-1", manifest.TalkSpec{DisplayTitle: "Kortere"}); err != nil {
+	if err := e.Resolver.Set.SetTalk("talk-1", manifest.TalkSpec{DisplayTitle: "Kortere"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = e.Write(root, testSession())
+	res, err = e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,10 +310,10 @@ func TestManifestOmitsAnEmptyTalkOverride(t *testing.T) {
 
 func TestWarningsAreReported(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	sess := testSession()
-	sess.Talk.Title = "Kan 🇳🇴 skyen kjøre på en brødrister?"
+	sess := testTalk()
+	sess.Title = "Kan 🇳🇴 skyen kjøre på en brødrister?"
 
-	res, err := e.Write(root, sess)
+	res, err := e.write(root, sess)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,32 +326,32 @@ func TestWarningsAreReported(t *testing.T) {
 	}
 }
 
-// A speaker with no slug cannot be addressed by an override, so no document is
-// written for them — but the bundle must still be produced.
-func TestSpeakerWithoutSlugIsSkippedInTheManifest(t *testing.T) {
+// A speaker with no slug is still addressable by key, so the bundle carries an
+// override for them like anyone else — there used to be no line to correct
+// their name or employer on, and the preview server's form for them 404'd.
+func TestSpeakerWithoutSlugGetsAnOverride(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	sess := testSession()
-	sess.Talk.Speakers = append(sess.Talk.Speakers,
-		cnd.Speaker{ID: "sp-2", Name: "Solveig Ulriksen", Title: "Skyvakt"})
+	sess := testTalk()
+	slugless := cnd.Speaker{ID: "sp-2", Name: "Solveig Ulriksen", Title: "Skyvakt"}
+	sess.Speakers = append(sess.Speakers, slugless)
 
-	res, err := e.Write(root, sess)
+	res, err := e.write(root, sess)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
 
-	// The record lists them — it is a record of the talk, and they are on it.
-	if !strings.Contains(string(body), "Solveig Ulriksen") {
-		t.Errorf("the record dropped a speaker:\n%s", body)
-	}
-	// But no override document, since there is no slug to key it on.
+	var found bool
 	for _, doc := range strings.Split(string(body), "\n---\n") {
-		if !strings.Contains(doc, "kind: SpeakerOverride") {
-			continue
+		if strings.Contains(doc, "kind: SpeakerOverride") && strings.Contains(doc, "name: "+slugless.Key()) {
+			found = true
+			if !strings.Contains(doc, "employer: Skyvakt") {
+				t.Errorf("the slugless speaker's override is not pre-filled:\n%s", doc)
+			}
 		}
-		if strings.Contains(doc, "Solveig") || strings.Contains(doc, "Skyvakt") {
-			t.Errorf("wrote an override for a speaker with no slug:\n%s", doc)
-		}
+	}
+	if !found {
+		t.Errorf("no override for the slugless speaker (key %q):\n%s", slugless.Key(), body)
 	}
 	if !strings.Contains(string(body), "name: dario-haaland") {
 		t.Errorf("lost the speaker that does have a slug:\n%s", body)
@@ -357,7 +367,7 @@ func TestSpeakerWithoutSlugIsSkippedInTheManifest(t *testing.T) {
 // knew about the talk when it produced the folder.
 func TestRecordCarriesTheWholeTalk(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +392,8 @@ func TestRecordCarriesTheWholeTalk(t *testing.T) {
 		"name: Dario Haaland",
 		// The free text the employer was guessed from, so a wrong guess can be
 		// judged without opening the website.
-		"profileTitle: Bysten Labs",
+		"submittedTitle: Bysten Labs",
+		"key: dario-haaland",
 		"employerGuessed: true",
 		// False here, which is exactly the case an image override fixes.
 		"hasPhoto: false",
@@ -396,7 +407,7 @@ func TestRecordCarriesTheWholeTalk(t *testing.T) {
 	}
 
 	// An export must be reproducible, so nothing in the file may vary per run.
-	second, err := e.Write(root, testSession())
+	second, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,10 +421,10 @@ func TestRecordCarriesTheWholeTalk(t *testing.T) {
 // folder says what was submitted as well as what the card shows.
 func TestRecordKeepsTheSubmittedTitle(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	if err := e.Set.SetTalk("talk-1", manifest.TalkSpec{DisplayTitle: "Kortere tittel"}); err != nil {
+	if err := e.Resolver.Set.SetTalk("talk-1", manifest.TalkSpec{DisplayTitle: "Kortere tittel"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +442,7 @@ func TestRecordKeepsTheSubmittedTitle(t *testing.T) {
 // exported bundle can be fed straight back.
 func TestExportedManifestLoadsWithTheRecordPresent(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,19 +468,19 @@ func TestImageOverrideReachesTheCardAndTheRecord(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
 
 	// A real 2x2 PNG, so the renderer actually embeds it.
-	photo := filepath.Join(filepath.Dir(e.Set.Path()), "dario.png")
+	photo := filepath.Join(filepath.Dir(e.Resolver.Set.Path()), "dario.png")
 	if err := os.WriteFile(photo, tinyPNG(t), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Named relatively, which resolves against the manifest's directory rather
 	// than the process working directory.
-	if err := e.Set.SetSpeaker("dario-haaland", manifest.SpeakerSpec{
+	if err := e.Resolver.Set.SetSpeaker("dario-haaland", manifest.SpeakerSpec{
 		Employer: "Bysten Labs", Image: "dario.png",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	res, err := e.Write(root, testSession())
+	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}

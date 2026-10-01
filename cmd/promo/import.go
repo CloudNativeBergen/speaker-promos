@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/vehagn/speaker-promos/internal/manifest"
+	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
 func cmdImport(args []string) error {
@@ -39,7 +40,7 @@ func cmdImport(args []string) error {
 	if err != nil {
 		return err
 	}
-	opts := manifest.BaselineFor(program)
+	opts := promo.ImportBaseline(program)
 	opts.ConfirmGuesses = *confirm
 	opts.DryRun = *dryRun
 

@@ -2,6 +2,7 @@ package render
 
 import (
 	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
@@ -10,7 +11,7 @@ import (
 //
 // The split mirrors the website's own speaker share card, so a promo posted as
 // a link preview and one posted as an image look like siblings.
-func (r *Renderer) landscape(conf cnd.Conference, s cnd.Session, g theme.Geometry, p *pass) (string, error) {
+func (r *Renderer) landscape(conf cnd.Conference, t promo.Talk, g theme.Geometry, p *pass) (string, error) {
 	// Content is drawn into its own canvas so the prelude — which must embed
 	// exactly the font faces the content ends up using — can be composed once
 	// those are known.
@@ -51,9 +52,9 @@ func (r *Renderer) landscape(conf cnd.Conference, s cnd.Session, g theme.Geometr
 	leftWidth := width*0.38 - pad
 	leftCentre := pad + leftWidth/2
 
-	photoSize, positions := photoRow(g, len(s.Talk.Speakers), leftCentre, leftWidth)
-	nameH := r.measureHeight(g, "name", s.SpeakerNames(p.words.And), leftWidth)
-	role := rolesLine(s.Talk.Speakers)
+	photoSize, positions := photoRow(g, len(t.Speakers), leftCentre, leftWidth)
+	nameH := r.measureHeight(g, "name", t.SpeakerNames(), leftWidth)
+	role := rolesLine(t.Speakers)
 	roleH := r.measureHeight(g, "role", role, leftWidth)
 
 	stackH := nameH + roleH
@@ -65,11 +66,11 @@ func (r *Renderer) landscape(conf cnd.Conference, s cnd.Session, g theme.Geometr
 		y = bodyTop + (available-stackH)/2
 	}
 
-	r.drawPhotos(c, p, s.Talk.Speakers, positions, y, photoSize, float64(g.Radius))
+	r.drawPhotos(c, p, t.Speakers, positions, y, photoSize, float64(g.Radius))
 	if len(positions) > 0 {
 		y += photoSize + float64(g.Gap)*0.6
 	}
-	if _, err := r.text(c, p, g, "name", s.SpeakerNames(p.words.And), leftCentre, y, leftWidth, "middle"); err != nil {
+	if _, err := r.text(c, p, g, "name", t.SpeakerNames(), leftCentre, y, leftWidth, "middle"); err != nil {
 		return "", err
 	}
 	y += nameH
@@ -82,7 +83,7 @@ func (r *Renderer) landscape(conf cnd.Conference, s cnd.Session, g theme.Geometr
 	// Right column: the talk panel, filling the remaining width.
 	rightX := width*0.38 + float64(g.Gap)*0.5
 	rightWidth := width - pad - rightX
-	if err := r.talkPanel(c, p, g, s, rightX, bodyTop, bodyBottom, rightWidth); err != nil {
+	if err := r.talkPanel(c, p, g, t, rightX, bodyTop, bodyBottom, rightWidth); err != nil {
 		return "", err
 	}
 

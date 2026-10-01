@@ -26,7 +26,6 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
-	"github.com/vehagn/speaker-promos/internal/post"
 	"gopkg.in/yaml.v3"
 )
 
@@ -50,7 +49,8 @@ const (
 
 // Metadata names the object an override applies to.
 type Metadata struct {
-	// Name is a speaker slug or a talk id, exactly as `promo list` prints it.
+	// Name is a speaker key (cnd.Speaker.Key: the slug, where there is one) or
+	// a talk id.
 	Name string `yaml:"name"`
 }
 
@@ -86,25 +86,8 @@ type SpeakerSpec struct {
 	// the manifest's own directory, so a bundle can carry its own photo next to
 	// the promo.yaml that names it.
 	Image string `yaml:"image,omitempty"`
-	Links Links  `yaml:"links,omitempty"`
-}
-
-// Links are a speaker's profiles, overriding anything scraped.
-type Links struct {
-	LinkedIn string `yaml:"linkedin,omitempty"`
-	Bluesky  string `yaml:"bluesky,omitempty"`
-	X        string `yaml:"x,omitempty"`
-	GitHub   string `yaml:"github,omitempty"`
-}
-
-// CND converts links to the domain type the cards and copy consume.
-func (l Links) CND() cnd.Links {
-	return cnd.Links{LinkedIn: l.LinkedIn, Bluesky: l.Bluesky, X: l.X, GitHub: l.GitHub}
-}
-
-// LinksOf records scraped links as manifest values.
-func LinksOf(l cnd.Links) Links {
-	return Links{LinkedIn: l.LinkedIn, Bluesky: l.Bluesky, X: l.X, GitHub: l.GitHub}
+	// Links are a speaker's profiles, overriding anything scraped.
+	Links cnd.Links `yaml:"links,omitempty"`
 }
 
 // A spec is empty when it corrects nothing; every field is a string, so the
@@ -315,7 +298,7 @@ func (s *Set) addDocument(node *yaml.Node) error {
 		return fmt.Errorf("line %d: unsupported apiVersion %q (want %q)", node.Line, doc.APIVersion, APIVersion)
 	}
 	if doc.Metadata.Name == "" {
-		return fmt.Errorf("line %d: %s needs a metadata.name (a speaker slug or talk id)", node.Line, doc.Kind)
+		return fmt.Errorf("line %d: %s needs a metadata.name (a speaker key or talk id)", node.Line, doc.Kind)
 	}
 
 	switch doc.Kind {
@@ -401,11 +384,11 @@ func field(n *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
-// Speaker returns the override for a speaker slug.
-func (s *Set) Speaker(slug string) (SpeakerSpec, bool) {
+// Speaker returns the override for a speaker key.
+func (s *Set) Speaker(key string) (SpeakerSpec, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	spec, ok := s.speakers[slug]
+	spec, ok := s.speakers[key]
 	return spec, ok
 }
 
@@ -429,14 +412,14 @@ func (s *Set) Len() (speakers, talks int) {
 // An override that sets nothing is deleted rather than written as an empty
 // object, so clearing a field in the preview server leaves the manifest as
 // clean as it was before the edit.
-func (s *Set) SetSpeaker(slug string, spec SpeakerSpec) error {
+func (s *Set) SetSpeaker(key string, spec SpeakerSpec) error {
 	spec = trimSpeaker(spec)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if spec.empty() {
-		delete(s.speakers, slug)
+		delete(s.speakers, key)
 	} else {
-		s.speakers[slug] = spec
+		s.speakers[key] = spec
 	}
 	return s.save()
 }
@@ -558,152 +541,4 @@ func (s *Set) documents() []document {
 		out = append(out, document{APIVersion, KindTalkOverride, Metadata{name}, s.talks[name]})
 	}
 	return out
-}
-
-// Overrides exposes the speaker corrections in the form the post package
-// already resolves against, rather than reimplementing that resolution here.
-func (s *Set) Overrides() post.Overrides {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make(post.Overrides, len(s.speakers))
-	for slug, spec := range s.speakers {
-		out[slug] = post.Override{Employer: spec.Employer, Job: spec.Job, Links: spec.Links.CND()}
-	}
-	return out
-}
-
-// Hidden reports whether a talk is excluded from bulk operations.
-func (s *Set) Hidden(talkID string) bool {
-	spec, ok := s.Talk(talkID)
-	return ok && spec.Hidden
-}
-
-// Rewrite applies a session's overrides — both the talk's and its speakers'.
-//
-// Overrides are applied by rewriting the session before it reaches the renderer
-// or the copy, which leaves both of those packages untouched and unaware that
-// overrides exist.
-//
-// Speaker overrides are folded into cnd.Speaker.Title, which is what a card's
-// role line renders. Without this, correcting an employer would change the
-// social copy but not the graphic sitting next to it — and the whole reason to
-// correct it is that the card says the wrong thing.
-func (s *Set) Rewrite(sess cnd.Session) cnd.Session {
-	if spec, ok := s.Talk(sess.Talk.ID); ok && spec.DisplayTitle != "" {
-		sess.Talk.Title = spec.DisplayTitle
-	}
-
-	// The speaker slice is shared with the Program — a speaker appearing on two
-	// talks has one backing array — so it must be cloned before any element is
-	// touched. Writing in place would leak this session's overrides into every
-	// other session that speaker appears in.
-	var speakers []cnd.Speaker
-	for i, sp := range sess.Talk.Speakers {
-		spec, ok := s.Speaker(sp.Slug)
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(spec.Name)
-		title := spec.RoleTitle()
-		image := s.resolveImage(spec.Image)
-		changesName := name != "" && name != sp.Name
-		changesTitle := title != "" && title != sp.Title
-		changesImage := image != "" && image != sp.Image
-		if !changesName && !changesTitle && !changesImage {
-			continue
-		}
-		if speakers == nil {
-			speakers = slices.Clone(sess.Talk.Speakers)
-		}
-		if changesName {
-			speakers[i].Name = name
-		}
-		if changesTitle {
-			speakers[i].Title = title
-		}
-		if changesImage {
-			speakers[i].Image = image
-		}
-	}
-	if speakers != nil {
-		sess.Talk.Speakers = speakers
-	}
-	return sess
-}
-
-// RoleTitle renders a speaker override as the free-text title a card shows,
-// following the upstream convention ("Senior Platform Engineer at
-// Vestbit"). It returns "" when the override says nothing about the role, so the
-// upstream value is kept.
-func (spec SpeakerSpec) RoleTitle() string {
-	switch {
-	// An explicit title wins: it is the escape hatch for roles that do not fit
-	// the "<job> at <employer>" shape at all.
-	case spec.Title != "":
-		return spec.Title
-	case spec.Job != "" && spec.Employer != "":
-		return spec.Job + " at " + spec.Employer
-	case spec.Job != "":
-		return spec.Job
-	default:
-		return spec.Employer
-	}
-}
-
-// Apply rewrites every session and drops the hidden ones. It is what bulk
-// selections (--all) use; an explicitly selected talk is rewritten but not
-// filtered, since asking for a talk by name and being told it does not exist
-// would be worse than rendering it.
-func (s *Set) Apply(in []cnd.Session) []cnd.Session {
-	out := make([]cnd.Session, 0, len(in))
-	for _, sess := range in {
-		if s.Hidden(sess.Talk.ID) {
-			continue
-		}
-		out = append(out, s.Rewrite(sess))
-	}
-	return out
-}
-
-// resolveImage turns an override's image value into something a renderer can
-// fetch.
-//
-// A relative path is resolved against the manifest's own directory rather than
-// the process working directory, so a bundle that carries a photo next to its
-// promo.yaml keeps working whatever directory the tool is run from.
-func (s *Set) resolveImage(image string) string {
-	image = strings.TrimSpace(image)
-	if image == "" || cnd.IsRemoteImage(image) || filepath.IsAbs(image) {
-		return image
-	}
-	if dir := filepath.Dir(s.path); dir != "" && dir != "." {
-		return filepath.Join(dir, image)
-	}
-	return image
-}
-
-// LanguageOr returns a talk's language override, falling back to fallback when
-// it has none. That is the rule every caller needs, and each used to spell it
-// out: a per-talk override beats a --language flag, which beats detection.
-func (s *Set) LanguageOr(talkID string, fallback lang.Language) lang.Language {
-	if l := s.LanguageFor(talkID); l != lang.Auto {
-		return l
-	}
-	return fallback
-}
-
-// LanguageFor returns the copy language for a talk: the override when one is
-// set, otherwise lang.Auto so the caller's own default or detection applies.
-func (s *Set) LanguageFor(talkID string) lang.Language {
-	spec, ok := s.Talk(talkID)
-	if !ok || spec.Language == "" {
-		return lang.Auto
-	}
-	// Already validated at load; a bad value here can only come from a
-	// programmatic Set and resolves to Auto rather than failing a render.
-	language, err := lang.ParseLanguage(spec.Language)
-	if err != nil {
-		return lang.Auto
-	}
-	return language
 }

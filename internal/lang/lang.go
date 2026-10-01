@@ -29,8 +29,9 @@ const (
 	English Language = "en"
 	// Norwegian is Bokmål. "nb" and "no" both resolve to this.
 	Norwegian Language = "no"
-	// Auto asks for detection from the talk's own text.
-	Auto Language = "auto"
+	// Auto asks for detection from the talk's own text. It is the zero value,
+	// so a Language nobody set means "the talk's own".
+	Auto Language = ""
 )
 
 // ParseLanguage accepts the spellings a user might reasonably type.
