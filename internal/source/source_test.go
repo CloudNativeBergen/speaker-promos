@@ -94,7 +94,7 @@ func TestSnapshotRoundTrips(t *testing.T) {
 	if changed, _ := reloaded.Reconcile(testProgram()); changed {
 		t.Error("a reloaded snapshot saw the same program as a change")
 	}
-	if got := reloaded.Links("ada"); got.Bluesky != "ada.example" {
+	if got := reloaded.speaker("ada").Links; got.Bluesky != "ada.example" {
 		t.Errorf("links lost on reload: %+v", got)
 	}
 }

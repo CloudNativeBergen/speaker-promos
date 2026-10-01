@@ -1,9 +1,7 @@
 package web
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/post"
@@ -30,14 +28,10 @@ type talkView struct {
 	CardURL  string
 	Size     string
 	Speakers []speakerView
-	Drafts   []draftView
+	Drafts   []post.Draft
 	// Warnings are the notes for this card: truncated text, emoji that some
 	// renderers will drop, or a correction the website has since overtaken.
 	Warnings []string
-	// WebsiteAt is when the website's data for this talk or any of its
-	// speakers last changed; EditedAt when any of their corrections did.
-	WebsiteAt time.Time
-	EditedAt  time.Time
 	// OOB marks a row rendered to be swapped in out-of-band, as the per-talk
 	// import does.
 	OOB bool
@@ -119,33 +113,6 @@ func (v speakerView) Fields(anchor string) []speakerField {
 		f.Anchor = anchor
 	}
 	return fields
-}
-
-// draftView is one platform's copy, with its length budget resolved.
-type draftView struct {
-	Draft post.Draft
-	Limit int
-	Over  bool
-}
-
-// Percent is how much of the platform's limit the draft uses, for a meter.
-func (d draftView) Percent() int {
-	if d.Limit <= 0 {
-		return 0
-	}
-	p := d.Draft.Runes() * 100 / d.Limit
-	if p > 100 {
-		p = 100
-	}
-	return p
-}
-
-// Count renders the length as "260/300" where a limit applies, else "582".
-func (d draftView) Count() string {
-	if d.Limit <= 0 {
-		return fmt.Sprintf("%d", d.Draft.Runes())
-	}
-	return fmt.Sprintf("%d/%d", d.Draft.Runes(), d.Limit)
 }
 
 // Anchor is a stable DOM id for a talk's row, used as the HTMX swap target.

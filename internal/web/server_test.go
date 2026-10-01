@@ -19,7 +19,10 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cache"
 	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/export"
 	"github.com/vehagn/speaker-promos/internal/manifest"
+	"github.com/vehagn/speaker-promos/internal/promo"
+	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
@@ -65,6 +68,29 @@ func testProgram() *cnd.Program {
 	}
 }
 
+// testOptions builds a server's options the way `promo serve` does, with no
+// link fetching and, unless images is given, no photos.
+func testOptions(t *testing.T, program *cnd.Program, set *manifest.Set, images *cache.Cache, outDir string) Options {
+	t.Helper()
+	th, err := theme.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := render.New(th, images)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, _, ok := raster.Find()
+	return Options{
+		Exporter: &export.Exporter{
+			Renderer: r, Resolver: &promo.Resolver{Program: program, Set: set},
+			Formats: export.AllFormats, Converter: conv, HasConverter: ok,
+		},
+		Size:   "portrait",
+		OutDir: outDir,
+	}
+}
+
 // Photos and link scraping are disabled: the tests must not touch the network,
 // and that also exercises the monogram fallback.
 func newTestServer(t *testing.T) (*Server, http.Handler, string) {
@@ -72,18 +98,7 @@ func newTestServer(t *testing.T) (*Server, http.Handler, string) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "promos.yaml")
 
-	th, err := theme.Default()
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv, err := New(Options{
-		Program: testProgram(),
-		Set:     manifest.New(manifestPath),
-		Theme:   th,
-		Size:    "portrait",
-		OutDir:  filepath.Join(dir, "out"),
-		NoLinks: true,
-	})
+	srv, err := New(testOptions(t, testProgram(), manifest.New(manifestPath), nil, filepath.Join(dir, "out")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,15 +430,11 @@ func TestDownloadUsesTheCLIFilename(t *testing.T) {
 // emitted through a raw-HTML path.
 func TestTemplatesEscapeUpstreamText(t *testing.T) {
 	dir := t.TempDir()
-	th, _ := theme.Default()
 	program := testProgram()
 	program.Talks[0].Title = `<script>alert("x")</script> & co`
 	program.Talks[0].Speakers[0].Name = `<b>bold</b>`
 
-	srv, err := New(Options{
-		Program: program, Set: manifest.New(filepath.Join(dir, "m.yaml")),
-		Theme: th, Size: "portrait", OutDir: dir, NoLinks: true,
-	})
+	srv, err := New(testOptions(t, program, manifest.New(filepath.Join(dir, "m.yaml")), nil, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,10 +844,6 @@ func TestIndexDoesNotWaitOnADeadPhotoHost(t *testing.T) {
 	defer close(block)
 
 	dir := t.TempDir()
-	th, err := theme.Default()
-	if err != nil {
-		t.Fatal(err)
-	}
 	set := manifest.New(filepath.Join(dir, "promos.yaml"))
 	if err := set.SetSpeaker("dario-haaland", manifest.SpeakerSpec{
 		Image: dead.URL + "/photo.png",
@@ -844,18 +851,11 @@ func TestIndexDoesNotWaitOnADeadPhotoHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv, err := New(Options{
-		Program: testProgram(),
-		Set:     set,
-		Theme:   th,
-		// Long enough that a per-load fetch would be unmistakable — a failed
-		// fetch is not cached, so rendering cards in the page would pay this
-		// on every load. The probe pays it once.
-		Images:  &cache.Cache{Dir: filepath.Join(dir, "img"), TTL: time.Minute, Timeout: 2 * time.Second},
-		Size:    "portrait",
-		OutDir:  filepath.Join(dir, "out"),
-		NoLinks: true,
-	})
+	// A timeout long enough that a per-load fetch would be unmistakable — a
+	// failed fetch is not cached, so rendering cards in the page would pay it
+	// on every load. The probe pays it once.
+	images := &cache.Cache{Dir: filepath.Join(dir, "img"), TTL: time.Minute, Timeout: 2 * time.Second}
+	srv, err := New(testOptions(t, testProgram(), set, images, filepath.Join(dir, "out")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1087,10 +1087,6 @@ func TestRoleLineFieldTracksTheCard(t *testing.T) {
 // the copy's, so the image and the draft beside it cannot disagree.
 func TestServedCardUsesTheTalksLanguage(t *testing.T) {
 	dir := t.TempDir()
-	th, err := theme.Default()
-	if err != nil {
-		t.Fatal(err)
-	}
 	program := testProgram()
 	program.Talks[0].Title = "Praktisk AI-drevet Kubernetes-drift"
 	program.Talks[0].Abstract = "Vi ser på hvordan det ikke fungerte og hva vi gjorde med det."
@@ -1100,10 +1096,7 @@ func TestServedCardUsesTheTalksLanguage(t *testing.T) {
 	}
 
 	set := manifest.New(filepath.Join(dir, "promos.yaml"))
-	srv, err := New(Options{
-		Program: program, Set: set, Theme: th, Size: "portrait",
-		OutDir: filepath.Join(dir, "out"), NoLinks: true,
-	})
+	srv, err := New(testOptions(t, program, set, nil, filepath.Join(dir, "out")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1147,17 +1140,10 @@ func TestWandButtonsArePresent(t *testing.T) {
 
 func TestNameWandCapitalises(t *testing.T) {
 	dir := t.TempDir()
-	th, err := theme.Default()
-	if err != nil {
-		t.Fatal(err)
-	}
 	program := testProgram()
 	program.Talks[0].Speakers[0].Name = "leffen"
 
-	srv, err := New(Options{
-		Program: program, Set: manifest.New(filepath.Join(dir, "promos.yaml")),
-		Theme: th, Size: "portrait", OutDir: filepath.Join(dir, "out"), NoLinks: true,
-	})
+	srv, err := New(testOptions(t, program, manifest.New(filepath.Join(dir, "promos.yaml")), nil, filepath.Join(dir, "out")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1188,17 +1174,10 @@ func TestTitleWandFollowsTheTalksLanguage(t *testing.T) {
 	newServer := func(t *testing.T, title, abstract string) (http.Handler, string) {
 		t.Helper()
 		dir := t.TempDir()
-		th, err := theme.Default()
-		if err != nil {
-			t.Fatal(err)
-		}
 		program := testProgram()
 		program.Talks[0].Title = title
 		program.Talks[0].Abstract = abstract
-		srv, err := New(Options{
-			Program: program, Set: manifest.New(filepath.Join(dir, "promos.yaml")),
-			Theme: th, Size: "portrait", OutDir: filepath.Join(dir, "out"), NoLinks: true,
-		})
+		srv, err := New(testOptions(t, program, manifest.New(filepath.Join(dir, "promos.yaml")), nil, filepath.Join(dir, "out")))
 		if err != nil {
 			t.Fatal(err)
 		}

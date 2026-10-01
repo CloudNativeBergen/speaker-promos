@@ -115,6 +115,18 @@ func (e *Exporter) WriteAll(root string, talks []promo.Talk, report progress.Fun
 	return out, nil
 }
 
+// Totals counts the files a run wrote, and lists its warnings, each led by the
+// bundle it belongs to.
+func Totals(results []Result) (files int, warnings []string) {
+	for _, res := range results {
+		files += len(res.Files)
+		for _, w := range res.Warnings {
+			warnings = append(warnings, res.Dir+": "+w)
+		}
+	}
+	return files, warnings
+}
+
 // Write produces one talk's bundle under root. The talk comes from the same
 // Resolver, so the record and the copy agree with the cards about every
 // correction.
@@ -134,12 +146,8 @@ func (e *Exporter) Write(root string, t promo.Talk) (Result, error) {
 		if err != nil {
 			return res, fmt.Errorf("rendering %q at %s: %w", t.Title, size, err)
 		}
-		if card.EmojiFallback {
-			res.Warnings = append(res.Warnings,
-				size+": contains emoji, which Inkscape and librsvg drop")
-		}
-		for _, el := range card.Overflow {
-			res.Warnings = append(res.Warnings, size+": text truncated to fit ("+el+")")
+		for _, w := range card.Warnings() {
+			res.Warnings = append(res.Warnings, size+": "+w)
 		}
 
 		svgPath := filepath.Join(dir, size+".svg")
@@ -233,37 +241,39 @@ func (e *Exporter) writeCopy(dir string, in post.Input) ([]string, error) {
 
 // collectNotes gathers the checks and mentions for a talk into one file.
 func collectNotes(drafts []post.Draft, in post.Input) string {
-	var b strings.Builder
-	seen := map[string]bool{}
+	var checks []string
 	for _, d := range drafts {
-		for _, n := range d.Notes {
-			if !seen[n] {
-				seen[n] = true
-				if b.Len() == 0 {
-					b.WriteString("Check before posting\n====================\n\n")
-				}
-				fmt.Fprintf(&b, "- %s\n", n)
-			}
-		}
+		checks = append(checks, d.Notes...)
 	}
-	for _, sp := range in.Talk.Speakers {
-		if sp.Stale {
-			if b.Len() == 0 {
-				b.WriteString("Check before posting\n====================\n\n")
-			}
-			fmt.Fprintf(&b, "- the website changed %s's details after they were corrected — check the correction still holds\n", sp.Name)
+	checks = append(checks, in.Talk.StaleNotes()...)
+
+	var b strings.Builder
+	section := func(heading string, items []string) {
+		if len(items) == 0 {
+			return
 		}
-	}
-	if mentions := post.Mentions(in); len(mentions) > 0 {
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("Profiles to mention\n===================\n\n")
-		for _, m := range mentions {
-			fmt.Fprintf(&b, "- %s\n", m)
+		fmt.Fprintf(&b, "%s\n%s\n\n", heading, strings.Repeat("=", len(heading)))
+		for _, item := range items {
+			fmt.Fprintf(&b, "- %s\n", item)
 		}
 	}
+	section("Check before posting", compactUnique(checks))
+	section("Profiles to mention", post.Mentions(in))
 	return b.String()
+}
+
+// compactUnique drops repeats, keeping first occurrences in order: both drafts
+// raise the same guessed employer, and it needs checking once.
+func compactUnique(items []string) []string {
+	seen := map[string]bool{}
+	return slices.DeleteFunc(items, func(s string) bool {
+		dup := seen[s]
+		seen[s] = true
+		return dup
+	})
 }
 
 // bundleHeader introduces a bundle's promo.yaml.
@@ -366,7 +376,7 @@ func (e *Exporter) writeManifest(dir string, t promo.Talk, res Result) (string, 
 		},
 		Talk: OutputTalk{
 			Title: t.Title, Language: string(t.Language), Detected: string(t.Detected),
-			Slot:        joinNonEmpty(fmt.Sprintf("Day %d", t.Schedule.Day), t.Schedule.TimeRange(), t.Schedule.ShortTrack()),
+			Slot:        t.Schedule.Label(),
 			FormatLabel: t.FormatLabel(), Hidden: t.Hidden, Posted: t.Posted,
 		},
 		Cards:    cardFiles(res.Files),
@@ -400,25 +410,10 @@ func (e *Exporter) writeManifest(dir string, t promo.Talk, res Result) (string, 
 	docs = append(docs, manifest.Doc(manifest.KindOutput,
 		manifest.Metadata{Name: t.ID, UpdatedAt: t.LastChanged()}, out))
 
-	data, err := manifest.Encode(bundleHeader, docs)
-	if err != nil {
-		return "", fmt.Errorf("encoding manifest for %q: %w", t.Title, err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
-		return "", fmt.Errorf("writing %s: %w", name, err)
+	if err := manifest.WriteFile(filepath.Join(dir, name), bundleHeader, docs); err != nil {
+		return "", err
 	}
 	return name, nil
-}
-
-// joinNonEmpty joins the non-empty parts with " · ".
-func joinNonEmpty(parts ...string) string {
-	var out []string
-	for _, p := range parts {
-		if p != "" && p != "Day 0" {
-			out = append(out, p)
-		}
-	}
-	return strings.Join(out, " · ")
 }
 
 // cardFiles keeps just the image files from a bundle's file list.

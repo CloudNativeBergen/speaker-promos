@@ -22,17 +22,6 @@ func (b Block) Height() float64 {
 	return float64(len(b.Lines)) * b.LineHeight
 }
 
-// Width returns the widest rendered line.
-func (b Block) Width(f *Font) float64 {
-	var w float64
-	for _, l := range b.Lines {
-		if m := f.Measure(l, b.Size, b.Tracking); m > w {
-			w = m
-		}
-	}
-	return w
-}
-
 // Wrap breaks text into lines no wider than maxWidth at the given size.
 //
 // Words longer than the line are split mid-word rather than allowed to

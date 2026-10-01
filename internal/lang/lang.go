@@ -124,26 +124,26 @@ func (l Language) Resolve(title, abstract string) Language {
 
 // Phrases is the wording generated text needs, per language.
 type Phrases struct {
-	// speaking and workshop are the verb phrases in "<who> <verb> <event>".
+	// Speaking* and Workshop* are the verb phrases in "<who> <verb> <event>".
 	// Norwegian has no verb-number agreement, so one form covers both a single
 	// speaker and several — unlike English, which needs is/are.
 	SpeakingSingular string
 	SpeakingPlural   string
 	WorkshopSingular string
 	WorkshopPlural   string
-	// at introduces the conference name.
+	// At introduces the conference name.
 	At string
-	// and joins the last two names in a list.
+	// And joins the last two names in a list.
 	And string
-	// anonymous stands in when no speaker is named.
+	// Anonymous stands in when no speaker is named.
 	Anonymous string
-	// quoteOpen and quoteClose wrap the talk title. Norwegian uses angle
+	// QuoteOpen and QuoteClose wrap the talk title. Norwegian uses angle
 	// quotation marks.
 	QuoteOpen, QuoteClose string
-	// weekdays and months are indexed from time.Weekday and time.Month-1.
+	// Weekdays and Months are indexed from time.Weekday and time.Month-1.
 	Weekdays []string
 	Months   []string
-	// date renders a weekday-and-date line from those names.
+	// Date renders a weekday-and-date line from those names.
 	Date func(p Phrases, t time.Time) string
 }
 

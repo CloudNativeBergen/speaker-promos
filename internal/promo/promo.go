@@ -3,10 +3,8 @@
 // The program page gives a talk as it was submitted; the manifest holds the
 // corrections made to it; the speaker pages give handles to mention; and the
 // talk's language decides the wording. Every card, draft, bundle and preview
-// row needs all four combined, and they used to be combined separately in each
-// of those places — keyed differently, in a different order, and so not always
-// to the same answer. This package is now the only place that combines them,
-// and everything downstream reads a resolved Talk rather than reassembling one.
+// row needs all four combined, and this is the only place that combines them:
+// everything downstream reads a resolved Talk, so they cannot disagree.
 package promo
 
 import (
@@ -97,14 +95,41 @@ type Talk struct {
 	Stale     bool
 }
 
-// LastChanged is the latest of the talk's and its speakers' website and
-// correction times: when anything that shapes this promo last changed.
-func (t Talk) LastChanged() time.Time {
-	latest := later(t.UpdatedAt, t.EditedAt)
+// WebsiteChanged is when the website last changed this talk or any of its
+// speakers, and Edited when any of their corrections last changed.
+func (t Talk) WebsiteChanged() time.Time {
+	out := t.UpdatedAt
 	for _, sp := range t.Speakers {
-		latest = later(latest, later(sp.UpdatedAt, sp.EditedAt))
+		out = manifest.Latest(out, sp.UpdatedAt)
 	}
-	return latest
+	return out
+}
+
+// Edited: see WebsiteChanged.
+func (t Talk) Edited() time.Time {
+	out := t.EditedAt
+	for _, sp := range t.Speakers {
+		out = manifest.Latest(out, sp.EditedAt)
+	}
+	return out
+}
+
+// LastChanged is when anything that shapes this promo last changed.
+func (t Talk) LastChanged() time.Time { return manifest.Latest(t.WebsiteChanged(), t.Edited()) }
+
+// StaleNotes say which corrections the website has since overtaken, for the
+// row warnings in promo serve and a bundle's NOTES.txt alike.
+func (t Talk) StaleNotes() []string {
+	var out []string
+	for _, sp := range t.Speakers {
+		if sp.Stale {
+			out = append(out, "the website changed "+sp.Name+"'s details after they were corrected — check the correction still holds")
+		}
+	}
+	if t.Stale {
+		out = append(out, "the website changed this talk after its display title or language was set — check it still holds")
+	}
+	return out
 }
 
 // StaleSpeakers are the keys of the speakers whose correction predates a
@@ -117,13 +142,6 @@ func (t Talk) StaleSpeakers() []string {
 		}
 	}
 	return out
-}
-
-func later(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
 }
 
 // stale reports whether a correction edited at edited predates a website
@@ -163,6 +181,14 @@ type Resolver struct {
 	// fetching policy is the caller's: the server caches across requests, and
 	// the CLI may be told to skip it. Nil means none.
 	Links func(cnd.Speaker) cnd.Links
+}
+
+// Scraped is a speaker's handles as found, before any correction.
+func (r *Resolver) Scraped(sp cnd.Speaker) cnd.Links {
+	if r.Links == nil {
+		return cnd.Links{}
+	}
+	return r.Links(sp)
 }
 
 // Talk resolves one talk against the manifest as it stands now.
@@ -271,10 +297,7 @@ func (r *Resolver) speaker(src cnd.Speaker) Speaker {
 		Image:  src.Image,
 	}
 	sp.UpdatedAt = r.Source.SpeakerUpdatedAt(sp.Key)
-	var scraped cnd.Links
-	if r.Links != nil {
-		scraped = r.Links(src)
-	}
+	scraped := r.Scraped(src)
 
 	var spec manifest.SpeakerSpec
 	ok := false

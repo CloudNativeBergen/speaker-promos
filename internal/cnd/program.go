@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vehagn/speaker-promos/internal/cache"
@@ -19,6 +20,17 @@ const DefaultDomain = "2026.cloudnativedays.no"
 type Loader struct {
 	Domain string
 	Cache  *cache.Cache
+
+	// links remembers each speaker's scraped handles, and any failure, for the
+	// life of the loader: a speaker on two talks would otherwise be parsed
+	// twice, and a preview server re-renders the same speakers all day.
+	linksMu sync.Mutex
+	links   map[string]linksResult
+}
+
+type linksResult struct {
+	links Links
+	err   error
 }
 
 // NewLoader returns a Loader for the default domain, caching page fetches for
@@ -111,15 +123,13 @@ func decodeConference(flight string, rows map[string]string, domain string) (Con
 	}
 
 	var c struct {
-		Title          string   `json:"title"`
-		StartDate      string   `json:"startDate"`
-		EndDate        string   `json:"endDate"`
-		City           string   `json:"city"`
-		Country        string   `json:"country"`
-		Domains        []string `json:"domains"`
-		LogoBright     string   `json:"logoBright"`
-		LogoDark       string   `json:"logoDark"`
-		LogomarkBright string   `json:"logomarkBright"`
+		Title      string   `json:"title"`
+		StartDate  string   `json:"startDate"`
+		EndDate    string   `json:"endDate"`
+		City       string   `json:"city"`
+		Country    string   `json:"country"`
+		Domains    []string `json:"domains"`
+		LogoBright string   `json:"logoBright"`
 	}
 	resolved, _ := json.Marshal(rsc.Resolve(decoded, rows))
 	if err := json.Unmarshal(resolved, &c); err != nil {
@@ -139,15 +149,13 @@ func decodeConference(flight string, rows map[string]string, domain string) (Con
 	}
 
 	return Conference{
-		Title:          c.Title,
-		StartDate:      c.StartDate,
-		EndDate:        c.EndDate,
-		City:           c.City,
-		Country:        c.Country,
-		Domain:         primary,
-		LogoBright:     svgOrEmpty(c.LogoBright),
-		LogoDark:       svgOrEmpty(c.LogoDark),
-		LogomarkBright: svgOrEmpty(c.LogomarkBright),
+		Title:      c.Title,
+		StartDate:  c.StartDate,
+		EndDate:    c.EndDate,
+		City:       c.City,
+		Country:    c.Country,
+		Domain:     primary,
+		LogoBright: svgOrEmpty(c.LogoBright),
 	}, nil
 }
 

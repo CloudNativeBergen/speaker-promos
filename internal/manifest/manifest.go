@@ -14,6 +14,7 @@
 package manifest
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -83,9 +84,20 @@ type Metadata struct {
 // metadataFields are the keys Metadata accepts, checked on load.
 var metadataFields = []string{"name", "editedAt", "updatedAt", "revision"}
 
-// Stamp is the form every timestamp is written in: UTC, to the second. Finer
+// stamp is the form every timestamp is written in: UTC, to the second. Finer
 // than that is noise in a file meant to be read in a diff.
-func Stamp(t time.Time) time.Time { return t.UTC().Truncate(time.Second) }
+func stamp(t time.Time) time.Time { return t.UTC().Truncate(time.Second) }
+
+// Latest is the latest of the given times; zero when there are none.
+func Latest(times ...time.Time) time.Time {
+	var out time.Time
+	for _, t := range times {
+		if t.After(out) {
+			out = t
+		}
+	}
+	return out
+}
 
 // SpeakerSpec corrects what is known about one speaker.
 //
@@ -127,95 +139,112 @@ type SpeakerSpec struct {
 // zero value says exactly that.
 func (spec SpeakerSpec) empty() bool { return spec == SpeakerSpec{} }
 
-// specFields binds each of a SpeakerSpec's fields to the name it carries in the
-// manifest and on the preview server's form.
-//
-// Everything that walks a spec field by field goes through this table:
-// trimming, the import merge, and the two compositions below. Adding a field to
-// SpeakerSpec is therefore one line here rather than a hunt through half a
-// dozen near-identical field listings, each of which used to be its own chance
-// to forget one.
-var specFields = []struct {
+// A field binds one spec field to the name it carries in the manifest, on the
+// preview server's form and in an import's report. Everything that walks a
+// spec field by field — trimming, diffing, overlaying, the import merge —
+// goes through a table of these, so adding a field is one line in its table.
+type field[T any] struct {
 	name string
-	of   func(*SpeakerSpec) *string
-}{
-	{"name", func(s *SpeakerSpec) *string { return &s.Name }},
-	{"employer", func(s *SpeakerSpec) *string { return &s.Employer }},
-	{"job", func(s *SpeakerSpec) *string { return &s.Job }},
-	{"title", func(s *SpeakerSpec) *string { return &s.Title }},
-	{"image", func(s *SpeakerSpec) *string { return &s.Image }},
-	{"linkedin", func(s *SpeakerSpec) *string { return &s.Links.LinkedIn }},
-	{"bluesky", func(s *SpeakerSpec) *string { return &s.Links.Bluesky }},
-	{"x", func(s *SpeakerSpec) *string { return &s.Links.X }},
-	{"github", func(s *SpeakerSpec) *string { return &s.Links.GitHub }},
+	get  func(T) string
+	set  func(*T, string)
 }
 
-// SpeakerFields are the names of a speaker's correctable fields, in the order
-// the table declares them. The preview server's form inputs carry these names,
-// so a submission can be read through the same table.
+// text is a field holding a plain string.
+func text[T any](name string, of func(*T) *string) field[T] {
+	return field[T]{name, func(t T) string { return *of(&t) }, func(t *T, v string) { *of(t) = v }}
+}
+
+type fields[T comparable] []field[T]
+
+var speakerFields = fields[SpeakerSpec]{
+	text("name", func(s *SpeakerSpec) *string { return &s.Name }),
+	text("employer", func(s *SpeakerSpec) *string { return &s.Employer }),
+	text("job", func(s *SpeakerSpec) *string { return &s.Job }),
+	text("title", func(s *SpeakerSpec) *string { return &s.Title }),
+	text("image", func(s *SpeakerSpec) *string { return &s.Image }),
+	text("linkedin", func(s *SpeakerSpec) *string { return &s.Links.LinkedIn }),
+	text("bluesky", func(s *SpeakerSpec) *string { return &s.Links.Bluesky }),
+	text("x", func(s *SpeakerSpec) *string { return &s.Links.X }),
+	text("github", func(s *SpeakerSpec) *string { return &s.Links.GitHub }),
+}
+
+// combine builds a spec field by field out of two others.
+func (fs fields[T]) combine(a, b T, pick func(a, b string) string) T {
+	var out T
+	for _, f := range fs {
+		f.set(&out, pick(f.get(a), f.get(b)))
+	}
+	return out
+}
+
+func (fs fields[T]) trim(spec T) T {
+	return fs.combine(spec, spec, func(v, _ string) string { return strings.TrimSpace(v) })
+}
+
+// overlay takes over's value wherever it has one, and base's elsewhere.
+func (fs fields[T]) overlay(over, base T) T {
+	return fs.combine(over, base, func(o, b string) string { return cmp.Or(o, b) })
+}
+
+// diffs lists the fields that differ from a to b.
+func (fs fields[T]) diffs(a, b T) []fieldDiff {
+	var out []fieldDiff
+	for _, f := range fs {
+		if x, y := f.get(a), f.get(b); x != y {
+			out = append(out, fieldDiff{f.name, x, y})
+		}
+	}
+	return out
+}
+
+// fieldDiff is one field that differs between two specs.
+type fieldDiff struct{ field, from, to string }
+
+// SpeakerFields are the names of a speaker's correctable fields, in table
+// order. The preview server's form inputs carry these names, so a submission
+// is read back through the same table it is saved with.
 func SpeakerFields() []string {
-	out := make([]string, 0, len(specFields))
-	for _, f := range specFields {
+	out := make([]string, 0, len(speakerFields))
+	for _, f := range speakerFields {
 		out = append(out, f.name)
 	}
 	return out
 }
 
-// Value returns one field by the name it has in the manifest, or "" when there
-// is no such field.
-func (spec SpeakerSpec) Value(field string) string {
-	for _, f := range specFields {
-		if f.name == field {
-			return *f.of(&spec)
+// Value returns one field by its manifest name, or "" for an unknown name.
+func (spec SpeakerSpec) Value(name string) string {
+	for _, f := range speakerFields {
+		if f.name == name {
+			return f.get(spec)
 		}
 	}
 	return ""
 }
 
-// SetValue sets one field by the name it has in the manifest, and ignores a
-// name the table does not know.
-func (spec *SpeakerSpec) SetValue(field, value string) {
-	for _, f := range specFields {
-		if f.name == field {
-			*f.of(spec) = value
-			return
+// SetValue sets one field by its manifest name, ignoring an unknown name.
+func (spec *SpeakerSpec) SetValue(name, value string) {
+	for _, f := range speakerFields {
+		if f.name == name {
+			f.set(spec, value)
 		}
 	}
-}
-
-// combine builds a spec field by field out of two others.
-func combine(a, b SpeakerSpec, pick func(a, b string) string) SpeakerSpec {
-	var out SpeakerSpec
-	for _, f := range specFields {
-		*f.of(&out) = pick(*f.of(&a), *f.of(&b))
-	}
-	return out
 }
 
 // Overlay returns the spec's own values where it has them and base's elsewhere:
-// the correction where one was made, the found value otherwise.
-//
-// It is what the preview server pre-fills its form with, so that a found value
-// can be edited in place rather than retyped from a grey placeholder.
+// the correction where one was made, the found value otherwise. It is what the
+// preview server pre-fills its form with.
 func (spec SpeakerSpec) Overlay(base SpeakerSpec) SpeakerSpec {
-	return combine(spec, base, func(override, found string) string {
-		if override != "" {
-			return override
-		}
-		return found
-	})
+	return speakerFields.overlay(spec, base)
 }
 
-// Diff reduces a spec to the fields that actually differ from base, so the
-// manifest records corrections and not a copy of everything the tool already
-// knew.
+// Diff reduces a spec to the fields that differ from base, so the manifest
+// records corrections and not a copy of everything the tool already knew.
 //
-// An empty field means "no opinion" rather than "make it empty": an override
-// has no way to express an explicit blank, and the value simply reverts to what
-// was found — which the form then shows again.
+// An empty field means "no opinion" rather than "make it empty": the value
+// reverts to what was found, which the form then shows again.
 func (spec SpeakerSpec) Diff(base SpeakerSpec) SpeakerSpec {
-	return combine(spec, base, func(value, found string) string {
-		if value == "" || value == found {
+	return speakerFields.combine(spec, base, func(value, found string) string {
+		if value == found {
 			return ""
 		}
 		return value
@@ -242,22 +271,25 @@ type TalkSpec struct {
 
 func (t TalkSpec) empty() bool { return t == TalkSpec{} }
 
-// talkFields binds each of a TalkSpec's fields to its manifest name, as
-// specFields does for a speaker, so the import can walk and report them.
-var talkFields = []struct {
-	name string
-	get  func(TalkSpec) string
-	set  func(*TalkSpec, string)
-}{
-	{"displayTitle", func(t TalkSpec) string { return t.DisplayTitle }, func(t *TalkSpec, v string) { t.DisplayTitle = v }},
-	{"language", func(t TalkSpec) string { return t.Language }, func(t *TalkSpec, v string) { t.Language = v }},
+var talkFields = fields[TalkSpec]{
+	text("displayTitle", func(t *TalkSpec) *string { return &t.DisplayTitle }),
+	text("language", func(t *TalkSpec) *string { return &t.Language }),
 	{"hidden", func(t TalkSpec) string {
 		if t.Hidden {
 			return "true"
 		}
 		return ""
 	}, func(t *TalkSpec, v string) { t.Hidden = v == "true" }},
-	{"posted", func(t TalkSpec) string { return t.Posted }, func(t *TalkSpec, v string) { t.Posted = v }},
+	text("posted", func(t *TalkSpec) *string { return &t.Posted }),
+}
+
+// Validate rejects a language or posted date the tool would not understand.
+func (t TalkSpec) Validate() error {
+	if _, err := lang.ParseLanguage(t.Language); err != nil {
+		return err
+	}
+	_, err := ParsePosted(t.Posted)
+	return err
 }
 
 // ParsePosted validates a posted date. Empty means not posted.
@@ -270,13 +302,6 @@ func ParsePosted(s string) (string, error) {
 		return "", fmt.Errorf("posted %q is not a date (want YYYY-MM-DD)", s)
 	}
 	return s, nil
-}
-
-func trimTalk(t TalkSpec) TalkSpec {
-	t.DisplayTitle = strings.TrimSpace(t.DisplayTitle)
-	t.Language = strings.TrimSpace(t.Language)
-	t.Posted = strings.TrimSpace(t.Posted)
-	return t
 }
 
 // Revision is a short content hash of an override spec. A bundle records the
@@ -339,11 +364,15 @@ func New(path string) *Set {
 	}
 }
 
-func (s *Set) now() time.Time {
-	if s.Now != nil {
-		return Stamp(s.Now())
+func (s *Set) now() time.Time { return StampNow(s.Now) }
+
+// StampNow is the current time from clock — time.Now when nil — as stamp
+// writes it.
+func StampNow(clock func() time.Time) time.Time {
+	if clock == nil {
+		clock = time.Now
 	}
-	return Stamp(time.Now())
+	return stamp(clock())
 }
 
 // Path is the file this Set saves to.
@@ -361,32 +390,40 @@ func (s *Set) BundleTalk() string {
 // path has a default and most runs start without one.
 func Load(path string) (*Set, error) {
 	set := New(path)
-	f, err := os.Open(set.path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return set, nil
-		}
-		return nil, fmt.Errorf("reading %s: %w", set.path, err)
-	}
-	defer f.Close()
-
-	dec := yaml.NewDecoder(f)
-	for i := 0; ; i++ {
-		// Each document is decoded into a Node first so that every error can
-		// name the line it is on. Hand-edited config is miserable precisely
-		// when it fails without saying where.
-		var node yaml.Node
-		if err := dec.Decode(&node); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("parsing %s: %w", set.path, err)
-		}
-		if err := set.addDocument(&node); err != nil {
-			return nil, fmt.Errorf("%s: %w", set.path, err)
-		}
+	if err := ReadFile(set.path, set.addDocument); err != nil {
+		return nil, err
 	}
 	return set, nil
+}
+
+// ReadFile calls each for every document in a multi-document YAML file. A
+// missing file has no documents and is not an error: every file this tool
+// keeps has a default path, and most runs start without one.
+//
+// Each document arrives as a Node rather than decoded, so that every error can
+// name the line it is on. Hand-edited config is miserable precisely when it
+// fails without saying where.
+func ReadFile(path string, each func(*yaml.Node) error) error {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	defer f.Close()
+	dec := yaml.NewDecoder(f)
+	for {
+		var node yaml.Node
+		if err := dec.Decode(&node); errors.Is(err, io.EOF) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("parsing %s: %w", path, err)
+		}
+		if err := each(&node); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
 }
 
 // addDocument validates one manifest document and records its override.
@@ -419,7 +456,7 @@ func (s *Set) addDocument(node *yaml.Node) error {
 	if doc.APIVersion != APIVersion && doc.APIVersion != apiVersionV1Alpha1 {
 		return fmt.Errorf("line %d: unsupported apiVersion %q (want %q)", node.Line, doc.APIVersion, APIVersion)
 	}
-	if err := checkFields(field(node, "metadata"), metadataFields...); err != nil {
+	if err := checkFields(child(node, "metadata"), metadataFields...); err != nil {
 		return err
 	}
 	if doc.Metadata.Name == "" {
@@ -428,49 +465,45 @@ func (s *Set) addDocument(node *yaml.Node) error {
 	if rev := doc.Metadata.Revision; rev != "" {
 		s.revisions[ref{doc.Kind, doc.Metadata.Name}] = rev
 	}
-	editedAt := doc.Metadata.EditedAt
-	if !editedAt.IsZero() {
-		editedAt = Stamp(editedAt)
+	name, editedAt := doc.Metadata.Name, stamp(doc.Metadata.EditedAt)
+	specErr := func(err error) error {
+		return fmt.Errorf("line %d: %s/%s: %w", doc.Spec.Line, doc.Kind, name, err)
 	}
+	duplicate := fmt.Errorf("line %d: duplicate %s for %q", node.Line, doc.Kind, name)
 
 	switch doc.Kind {
 	case KindSpeakerOverride:
+		var spec SpeakerSpec
 		if err := checkFields(&doc.Spec, "name", "employer", "job", "title", "image", "links"); err != nil {
 			return err
 		}
-		var spec SpeakerSpec
+		if err := checkFields(child(&doc.Spec, "links"), "linkedin", "bluesky", "x", "github"); err != nil {
+			return err
+		}
 		if err := doc.Spec.Decode(&spec); err != nil {
-			return fmt.Errorf("line %d: %s/%s: %w", doc.Spec.Line, doc.Kind, doc.Metadata.Name, err)
+			return specErr(err)
 		}
-		if links := field(&doc.Spec, "links"); links != nil {
-			if err := checkFields(links, "linkedin", "bluesky", "x", "github"); err != nil {
-				return err
-			}
+		if _, dup := s.speakers[name]; dup {
+			return duplicate
 		}
-		if _, dup := s.speakers[doc.Metadata.Name]; dup {
-			return fmt.Errorf("line %d: duplicate %s for %q", node.Line, doc.Kind, doc.Metadata.Name)
-		}
-		s.speakers[doc.Metadata.Name] = entry[SpeakerSpec]{spec, editedAt}
+		s.speakers[name] = entry[SpeakerSpec]{spec, editedAt}
 	case KindTalkOverride:
+		var spec TalkSpec
 		if err := checkFields(&doc.Spec, "displayTitle", "hidden", "language", "posted"); err != nil {
 			return err
 		}
-		var spec TalkSpec
+		// Validated on load, so a typo is an error here rather than silently
+		// falling back to detection in every generated post.
 		if err := doc.Spec.Decode(&spec); err != nil {
-			return fmt.Errorf("line %d: %s/%s: %w", doc.Spec.Line, doc.Kind, doc.Metadata.Name, err)
+			return specErr(err)
 		}
-		// Validated on load so a typo is an error here rather than silently
-		// falling back to English in every generated post.
-		if _, err := lang.ParseLanguage(spec.Language); err != nil {
-			return fmt.Errorf("line %d: %s/%s: %w", doc.Spec.Line, doc.Kind, doc.Metadata.Name, err)
+		if err := spec.Validate(); err != nil {
+			return specErr(err)
 		}
-		if _, err := ParsePosted(spec.Posted); err != nil {
-			return fmt.Errorf("line %d: %s/%s: %w", doc.Spec.Line, doc.Kind, doc.Metadata.Name, err)
+		if _, dup := s.talks[name]; dup {
+			return duplicate
 		}
-		if _, dup := s.talks[doc.Metadata.Name]; dup {
-			return fmt.Errorf("line %d: duplicate %s for %q", node.Line, doc.Kind, doc.Metadata.Name)
-		}
-		s.talks[doc.Metadata.Name] = entry[TalkSpec]{trimTalk(spec), editedAt}
+		s.talks[name] = entry[TalkSpec]{talkFields.trim(spec), editedAt}
 	case KindSource, KindOutput:
 		if doc.Kind == KindSource {
 			s.bundleTalk = doc.Metadata.Name
@@ -512,8 +545,8 @@ func checkFields(n *yaml.Node, allowed ...string) error {
 	return nil
 }
 
-// field returns the value node for a key in a mapping, or nil.
-func field(n *yaml.Node, key string) *yaml.Node {
+// child returns the value node for a key in a mapping, or nil.
+func child(n *yaml.Node, key string) *yaml.Node {
 	if n == nil || n.Kind != yaml.MappingNode {
 		return nil
 	}
@@ -555,13 +588,6 @@ func (s *Set) EditedAt(kind, name string) time.Time {
 	return time.Time{}
 }
 
-// Len reports how many overrides of each kind are loaded.
-func (s *Set) Len() (speakers, talks int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.speakers), len(s.talks)
-}
-
 // SetSpeaker records a speaker override and saves the manifest.
 //
 // An override that sets nothing is deleted rather than written as an empty
@@ -569,7 +595,7 @@ func (s *Set) Len() (speakers, talks int) {
 // clean as it was before the edit. The edit is stamped only if it changed
 // something, so saving a form unchanged leaves the file byte-identical.
 func (s *Set) SetSpeaker(key string, spec SpeakerSpec) error {
-	spec = trimSpeaker(spec)
+	spec = speakerFields.trim(spec)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	putEntry(s.speakers, key, spec, s.now())
@@ -578,7 +604,7 @@ func (s *Set) SetSpeaker(key string, spec SpeakerSpec) error {
 
 // SetTalk records a talk override and saves the manifest.
 func (s *Set) SetTalk(id string, spec TalkSpec) error {
-	spec = trimTalk(spec)
+	spec = talkFields.trim(spec)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	putEntry(s.talks, id, spec, s.now())
@@ -602,23 +628,6 @@ func putEntry[T comparable](m map[string]entry[T], name string, spec T, now time
 	}
 }
 
-// trimSpeaker trims every field, since these arrive either from a browser form
-// or from a file someone edited by hand.
-func trimSpeaker(spec SpeakerSpec) SpeakerSpec {
-	for _, f := range specFields {
-		p := f.of(&spec)
-		*p = strings.TrimSpace(*p)
-	}
-	return spec
-}
-
-// Save writes the manifest to its path.
-func (s *Set) Save() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.save()
-}
-
 const fileHeader = `# Promo overrides for Cloud Native Days.
 #
 # Written by "promo serve" and read by "promo export" and "promo post". Safe to
@@ -627,16 +636,16 @@ const fileHeader = `# Promo overrides for Cloud Native Days.
 `
 
 // save writes the manifest. The caller must hold s.mu.
-func (s *Set) save() error {
-	if s.path == "" {
-		return errors.New("manifest has no path to save to")
-	}
-	data, err := Encode(fileHeader, s.documents())
+func (s *Set) save() error { return WriteFile(s.path, fileHeader, s.documents()) }
+
+// WriteFile writes documents under a header comment, atomically.
+func WriteFile(path, header string, docs []Document) error {
+	data, err := Encode(header, docs)
 	if err != nil {
-		return fmt.Errorf("encoding %s: %w", s.path, err)
+		return fmt.Errorf("encoding %s: %w", path, err)
 	}
-	if err := WriteAtomic(s.path, data); err != nil {
-		return fmt.Errorf("writing %s: %w", s.path, err)
+	if err := writeAtomic(path, data); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	return nil
 }
@@ -664,10 +673,10 @@ func Encode(header string, docs []Document) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// WriteAtomic writes data through a temporary file in the same directory, so an
+// writeAtomic writes data through a temporary file in the same directory, so an
 // interrupted save cannot truncate a manifest that holds an afternoon of
 // corrections.
-func WriteAtomic(path string, data []byte) error {
+func writeAtomic(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err

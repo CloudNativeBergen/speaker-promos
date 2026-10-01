@@ -9,6 +9,19 @@ import (
 	"github.com/vehagn/speaker-promos/internal/cnd"
 )
 
+// lengths counts the overrides of each kind.
+func lengths(s *Set) (speakers, talks int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.speakers), len(s.talks)
+}
+
+func saveSet(s *Set) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.save()
+}
+
 func tempPath(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "promos.yaml")
@@ -71,7 +84,7 @@ func TestMissingFileIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load of a missing file: %v", err)
 	}
-	if s, tk := set.Len(); s != 0 || tk != 0 {
+	if s, tk := lengths(set); s != 0 || tk != 0 {
 		t.Errorf("Len = %d, %d; want 0, 0", s, tk)
 	}
 }
@@ -102,10 +115,10 @@ func TestRoundTripIsStableAndSorted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if s, tk := reloaded.Len(); s != 3 || tk != 2 {
+	if s, tk := lengths(reloaded); s != 3 || tk != 2 {
 		t.Fatalf("reloaded Len = %d, %d; want 3, 2", s, tk)
 	}
-	if err := reloaded.Save(); err != nil {
+	if err := saveSet(reloaded); err != nil {
 		t.Fatal(err)
 	}
 	second, err := os.ReadFile(path)
@@ -233,7 +246,7 @@ func TestSkipsEmptyDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if s, tk := set.Len(); s != 1 || tk != 1 {
+	if s, tk := lengths(set); s != 1 || tk != 1 {
 		t.Errorf("Len = %d, %d; want 1, 1", s, tk)
 	}
 }
@@ -335,7 +348,7 @@ spec:
 	if _, ok := set.Talk("talk-1"); ok {
 		t.Error("TalkInfo was mistaken for a TalkOverride")
 	}
-	if s, tk := set.Len(); s != 1 || tk != 0 {
+	if s, tk := lengths(set); s != 1 || tk != 0 {
 		t.Errorf("Len = %d, %d; want 1, 0", s, tk)
 	}
 
@@ -419,7 +432,7 @@ func TestV1Alpha1LoadsAndMigrates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a v1alpha1 manifest did not load: %v", err)
 	}
-	if err := set.Save(); err != nil {
+	if err := saveSet(set); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(path)

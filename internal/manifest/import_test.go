@@ -72,7 +72,7 @@ func TestImportOfAnUneditedBundleIsANoOp(t *testing.T) {
 	if len(changes) != 0 {
 		t.Errorf("an unedited bundle imported %v", changes)
 	}
-	if s, tk := target.Len(); s != 1 || tk != 0 {
+	if s, tk := lengths(target); s != 1 || tk != 0 {
 		t.Errorf("Len = %d, %d; empty bundle objects must not be stored", s, tk)
 	}
 }
@@ -313,7 +313,7 @@ spec:
 	if err == nil || !strings.Contains(err.Error(), "re-export") {
 		t.Errorf("err = %v, want the re-export message", err)
 	}
-	if s, _ := target.Len(); s != 0 {
+	if s, _ := lengths(target); s != 0 {
 		t.Error("an old bundle was partly imported")
 	}
 }
@@ -388,31 +388,5 @@ func TestImportFilesReportsProgress(t *testing.T) {
 	}
 	if len(res) != 2 || len(res[0].Changes) != 1 || len(steps) != 2 || steps[1] != 2 {
 		t.Errorf("res = %+v, steps = %v", res, steps)
-	}
-}
-
-func TestSpeakersAndTalksReturnCopies(t *testing.T) {
-	set := newTarget(t)
-	if err := set.SetSpeaker("a", SpeakerSpec{Employer: "Corp"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := set.SetTalk("t", TalkSpec{Hidden: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	speakers := set.Speakers()
-	speakers["a"] = SpeakerSpec{Employer: "Mutated"}
-	speakers["b"] = SpeakerSpec{Employer: "Added"}
-	talks := set.Talks()
-	delete(talks, "t")
-
-	if spec, _ := set.Speaker("a"); spec.Employer != "Corp" {
-		t.Errorf("the returned map aliases the Set: %+v", spec)
-	}
-	if _, ok := set.Speaker("b"); ok {
-		t.Error("writing to the returned map added to the Set")
-	}
-	if _, ok := set.Talk("t"); !ok {
-		t.Error("deleting from the returned map removed from the Set")
 	}
 }

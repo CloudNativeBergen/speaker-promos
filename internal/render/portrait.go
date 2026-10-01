@@ -1,9 +1,6 @@
 package render
 
 import (
-	"strconv"
-	"strings"
-
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
@@ -95,7 +92,7 @@ func (r *Renderer) portrait(conf cnd.Conference, t promo.Talk, g theme.Geometry,
 // panel, vertically centred between top and bottom.
 func (r *Renderer) talkPanel(c *canvas, p *pass, g theme.Geometry, t promo.Talk, x, top, bottom, width float64) error {
 	inner := width - float64(g.Gap)*2
-	eyebrow := talkEyebrow(t.Schedule)
+	eyebrow := t.Schedule.Label()
 	detail := talkDetail(t.Talk)
 
 	eyebrowH := r.measureHeight(g, "eyebrow", eyebrow, inner)
@@ -145,21 +142,6 @@ func (r *Renderer) talkPanel(c *canvas, p *pass, g theme.Geometry, t promo.Talk,
 		}
 	}
 	return nil
-}
-
-// talkEyebrow labels the panel with the talk's slot.
-func talkEyebrow(s cnd.Slot) string {
-	var parts []string
-	if s.Day > 0 {
-		parts = append(parts, "Day "+strconv.Itoa(s.Day))
-	}
-	if t := s.TimeRange(); t != "" {
-		parts = append(parts, t)
-	}
-	if track := s.ShortTrack(); track != "" {
-		parts = append(parts, track)
-	}
-	return strings.Join(parts, " · ")
 }
 
 // talkDetail is the format and level line under the title.

@@ -19,11 +19,8 @@ import (
 
 // DefaultTimeout bounds a single fetch.
 //
-// There was no timeout at all, and Go's default client has none either, so one
-// unresponsive image host was enough to hang a request forever. In the preview
-// server that request holds the lock every page render needs, so a single dead
-// photo URL wedged the whole app — reproduced against a host that accepts the
-// connection and never answers.
+// Go's default client has none, so one unresponsive image host would hang a
+// request — and with it a preview page — forever.
 //
 // Generous rather than tight: the program page is ~5 MB and a speaker page
 // ~3.4 MB, and a slow conference network should not fail a fetch that would
@@ -153,9 +150,4 @@ func (c *Cache) FetchedAt(url string) time.Time {
 		return time.Time{}
 	}
 	return fi.ModTime()
-}
-
-// Clear removes every cached entry.
-func (c *Cache) Clear() error {
-	return os.RemoveAll(c.Dir)
 }

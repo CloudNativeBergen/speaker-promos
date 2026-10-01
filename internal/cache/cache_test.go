@@ -101,21 +101,3 @@ func TestDefaultTimeoutIsApplied(t *testing.T) {
 		t.Error("a new client is built per call")
 	}
 }
-
-func TestClear(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("x"))
-	}))
-	defer srv.Close()
-
-	c := &Cache{Dir: filepath.Join(t.TempDir(), "sub"), TTL: time.Minute}
-	if _, err := c.Get(srv.URL); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Clear(); err != nil {
-		t.Fatal(err)
-	}
-	if entries, _ := filepath.Glob(filepath.Join(c.Dir, "*")); len(entries) != 0 {
-		t.Errorf("Clear left %d entries", len(entries))
-	}
-}

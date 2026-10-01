@@ -1,17 +1,6 @@
 package post
 
-import (
-	"strings"
-	"time"
-)
-
-func parseDate(s string) *time.Time {
-	d, err := time.Parse(time.DateOnly, s)
-	if err != nil {
-		return nil
-	}
-	return &d
-}
+import "strings"
 
 func isAlnum(r rune) bool {
 	return r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'

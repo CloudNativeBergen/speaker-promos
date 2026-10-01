@@ -12,10 +12,7 @@ import (
 // The split mirrors the website's own speaker share card, so a promo posted as
 // a link preview and one posted as an image look like siblings.
 func (r *Renderer) landscape(conf cnd.Conference, t promo.Talk, g theme.Geometry, p *pass) (string, error) {
-	// Content is drawn into its own canvas so the prelude — which must embed
-	// exactly the font faces the content ends up using — can be composed once
-	// those are known.
-	c := &canvas{}
+	c := &canvas{} // see portrait for why the content gets its own canvas
 
 	pad := float64(g.Pad)
 	width := float64(g.Width)

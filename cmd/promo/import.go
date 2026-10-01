@@ -26,7 +26,7 @@ func cmdImport(args []string) error {
 	if err != nil {
 		return err
 	}
-	target, err := manifestPath.load()
+	target, err := manifest.Load(manifestPath.path)
 	if err != nil {
 		return err
 	}
@@ -39,19 +39,13 @@ func cmdImport(args []string) error {
 	}, bar.Func())
 	bar.Clear()
 
-	var applied, conflicts int
 	for _, res := range results {
 		if len(res.Changes) == 0 {
 			continue
 		}
-		fmt.Printf("%s\n", relativeTo(res.Path))
+		fmt.Println(relativeTo(res.Path))
 		for _, c := range res.Changes {
 			fmt.Println("  " + c.String())
-			if c.Conflict {
-				conflicts++
-			} else {
-				applied++
-			}
 		}
 		fmt.Println()
 	}
@@ -62,18 +56,15 @@ func cmdImport(args []string) error {
 		return err
 	}
 
-	switch {
-	case applied == 0 && conflicts == 0:
-		fmt.Printf("nothing to import from %d file(s): no bundle was edited since it was exported\n", len(paths))
-	case *dryRun:
-		fmt.Printf("%d change(s) from %d file(s) — nothing written (--dry-run)\n", applied, len(paths))
-	default:
-		fmt.Printf("%d change(s) from %d file(s) written to %s\n", applied, len(paths), target.Path())
+	fmt.Print(manifest.Summary(results, "re-run with --force"))
+	if applied, _ := manifest.Tally(results); applied > 0 {
+		if *dryRun {
+			fmt.Print(" — nothing written (--dry-run)")
+		} else {
+			fmt.Printf(", written to %s", target.Path())
+		}
 	}
-	if conflicts > 0 {
-		fmt.Printf("%d conflict(s) left as the manifest has them: changed in both places since the export.\n"+
-			"Re-run with --force to take the bundles' version.\n", conflicts)
-	}
+	fmt.Println()
 	return nil
 }
 

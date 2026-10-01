@@ -42,9 +42,8 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 // handleTalkImport merges one talk's bundle, found by the talk id it records
 // rather than by folder name, and re-renders just that row.
 func (s *Server) handleTalkImport(w http.ResponseWriter, r *http.Request) {
-	src, ok := s.opts.Program.Talk(r.PathValue("id"))
+	src, ok := s.talkParam(w, r, r.PathValue("id"))
 	if !ok {
-		http.NotFound(w, r)
 		return
 	}
 	path, err := manifest.FindBundle(s.opts.OutDir, src.ID)
@@ -62,40 +61,24 @@ func (s *Server) importJob(w http.ResponseWriter, r *http.Request, label string,
 	opts := manifest.ImportOptions{Force: r.FormValue("force") != ""}
 	s.startJob(w, r, label, func(j *job) func(http.ResponseWriter, *http.Request) {
 		j.progress(0, len(paths), "")
-		results, err := manifest.ImportFiles(s.opts.Set, paths, opts, j.progress)
+		results, err := manifest.ImportFiles(s.resolver.Set, paths, opts, j.progress)
 
-		var applied, conflicts []manifest.Change
-		for _, res := range results {
-			for _, c := range res.Changes {
-				if c.Conflict {
-					conflicts = append(conflicts, c)
-				} else {
-					applied = append(applied, c)
-				}
-			}
-		}
-		if len(applied) > 0 {
+		applied, conflicts := manifest.Tally(results)
+		if applied > 0 {
 			// Cards are addressed by revision, so bumping it is what makes the
 			// browser refetch the ones an import changed.
 			s.mu.Lock()
 			s.rev++
 			s.mu.Unlock()
 		}
-
-		report := statusReport{Summary: fmt.Sprintf("imported %d change(s) from %d file(s)",
-			len(applied), len(results))}
-		if len(applied) == 0 {
-			report.Summary = fmt.Sprintf("nothing to import from %d file(s): no bundle was edited "+
-				"since it was exported", len(results))
-			report.Muted = true
+		report := statusReport{
+			Summary: manifest.Summary(results, "tick “force”"),
+			Muted:   applied == 0 && conflicts == 0,
 		}
-		if n := len(conflicts); n > 0 {
-			report.Summary += fmt.Sprintf(" — %d conflict(s) kept as they are here, since they "+
-				"changed in both places; tick “force” to take the bundles' version", n)
-			report.Muted = false
-		}
-		for _, c := range append(applied, conflicts...) {
-			report.Changes = append(report.Changes, c.String())
+		for _, res := range results {
+			for _, c := range res.Changes {
+				report.Changes = append(report.Changes, c.String())
+			}
 		}
 		if err != nil {
 			report = statusReport{Summary: err.Error(), Changes: report.Changes, Error: true}
@@ -140,7 +123,7 @@ func (s *Server) writeRows(buf *strings.Builder, size string) {
 		OOB   bool
 	}{views, size, true}
 	if err := s.tmpl.ExecuteTemplate(buf, "rows.html", rows); err != nil {
-		fmt.Fprintf(buf, `<p class="error">%s</p>`, err)
+		buf.WriteString(errorHTML(err))
 	}
 }
 
@@ -149,6 +132,6 @@ func (s *Server) writeRow(buf *strings.Builder, src cnd.Talk, size string) {
 	view := s.view(src, size)
 	view.OOB = true
 	if err := s.tmpl.ExecuteTemplate(buf, "talk.html", view); err != nil {
-		fmt.Fprintf(buf, `<p class="error">%s</p>`, err)
+		buf.WriteString(errorHTML(err))
 	}
 }

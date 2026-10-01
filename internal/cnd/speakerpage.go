@@ -18,9 +18,6 @@ type Links struct {
 	GitHub   string `yaml:"github,omitempty"`   // username
 }
 
-// Empty reports whether no links were found.
-func (l Links) Empty() bool { return l == Links{} }
-
 // Normalize strips the "@" a handle may be written with — the way people say
 // it — so that it is not doubled when a post adds its own.
 func (l Links) Normalize() Links {
@@ -82,16 +79,35 @@ var organiserAccounts = map[string]bool{
 // of the HTML. That makes this the most fragile part of the tool, and it is
 // used only for optional @-mention suggestions in draft copy: a speaker with no
 // detectable links simply gets none, and the copy still works.
+//
+// Each speaker is fetched at most once per Loader. A speaker without a slug has
+// no page, and no links.
 func (l *Loader) SpeakerLinks(s Speaker) (Links, error) {
 	if s.Slug == "" {
 		return Links{}, nil
 	}
-	url := fmt.Sprintf("https://%s/speaker/%s", l.Domain, s.Slug)
-	body, err := l.Cache.Get(url)
-	if err != nil {
-		return Links{}, err
+	l.linksMu.Lock()
+	r, ok := l.links[s.Slug]
+	l.linksMu.Unlock()
+	if ok {
+		return r.links, r.err
 	}
-	return parseLinks(string(body)), nil
+
+	// Fetched without the lock held, so one slow page does not hold up the
+	// rest; two goroutines racing on one speaker merely fetch it twice.
+	body, err := l.Cache.Get(fmt.Sprintf("https://%s/speaker/%s", l.Domain, s.Slug))
+	if err == nil {
+		r = linksResult{links: parseLinks(string(body))}
+	} else {
+		r = linksResult{err: err}
+	}
+	l.linksMu.Lock()
+	if l.links == nil {
+		l.links = map[string]linksResult{}
+	}
+	l.links[s.Slug] = r
+	l.linksMu.Unlock()
+	return r.links, r.err
 }
 
 func parseLinks(html string) Links {

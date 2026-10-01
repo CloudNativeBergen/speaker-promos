@@ -14,11 +14,6 @@
 package source
 
 import (
-	"errors"
-	"fmt"
-	"io"
-	"maps"
-	"os"
 	"slices"
 	"sync"
 	"time"
@@ -31,9 +26,9 @@ import (
 // DefaultPath is the snapshot a command keeps when none is given.
 const DefaultPath = "source.yaml"
 
-// KindConference is the snapshot's conference document. Each talk is a
+// kindConference is the snapshot's conference document. Each talk is a
 // manifest.KindSource document, the same one a bundle carries.
-const KindConference = "Conference"
+const kindConference = "Conference"
 
 const fileHeader = `# What the conference website said, as of the updatedAt on each object.
 #
@@ -78,29 +73,25 @@ type Conference struct {
 	Domain    string `yaml:"domain,omitempty"`
 }
 
-// talkRecord is a stored talk: its own fields and the keys of its speakers.
-type talkRecord struct {
-	ID        string
-	Fields    talkFields
-	Topics    []string
-	Speakers  []string
+// record is something the snapshot stores, and when its content last changed.
+type record[T any] struct {
+	Value     T
 	UpdatedAt time.Time
 }
 
-// talkFields are the parts of a talk that decide whether it changed.
-type talkFields struct {
-	Title, Abstract, Format, Level, Status string
-	Topics                                 string // joined, to keep this comparable
-	Schedule                               cnd.Slot
+// talk is a stored talk: its own fields, and the keys of its speakers.
+type talk struct {
+	Talk     Talk // Speakers left empty
+	Speakers []string
 }
 
-// Snapshot is a loaded snapshot. It is safe for concurrent use.
+// Snapshot is a loaded snapshot. It is safe for concurrent use, and a nil
+// Snapshot is an empty one that records nothing.
 type Snapshot struct {
 	mu         sync.Mutex
 	path       string
-	conference Conference
-	confAt     time.Time
-	talks      map[string]talkRecord
+	conference record[Conference]
+	talks      map[string]record[talk]
 	order      []string
 	speakers   map[string]Speaker
 
@@ -113,73 +104,50 @@ func New(path string) *Snapshot {
 	if path == "" {
 		path = DefaultPath
 	}
-	return &Snapshot{path: path, talks: map[string]talkRecord{}, speakers: map[string]Speaker{}}
+	return &Snapshot{path: path, talks: map[string]record[talk]{}, speakers: map[string]Speaker{}}
 }
 
 // Path is the file this snapshot saves to.
 func (s *Snapshot) Path() string { return s.path }
 
-func (s *Snapshot) now() time.Time {
-	if s.Now != nil {
-		return manifest.Stamp(s.Now())
-	}
-	return manifest.Stamp(time.Now())
-}
-
 // Load reads a snapshot. A missing file is an empty snapshot: the first run
 // creates it.
 func Load(path string) (*Snapshot, error) {
 	snap := New(path)
-	f, err := os.Open(snap.path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return snap, nil
-		}
-		return nil, fmt.Errorf("reading %s: %w", snap.path, err)
-	}
-	defer f.Close()
-
-	dec := yaml.NewDecoder(f)
-	for {
+	err := manifest.ReadFile(snap.path, func(node *yaml.Node) error {
 		var doc struct {
 			Kind     string            `yaml:"kind"`
 			Metadata manifest.Metadata `yaml:"metadata"`
 			Spec     yaml.Node         `yaml:"spec"`
 		}
-		if err := dec.Decode(&doc); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("parsing %s: %w", snap.path, err)
+		if err := node.Decode(&doc); err != nil {
+			return err
 		}
 		switch doc.Kind {
-		case KindConference:
-			if err := doc.Spec.Decode(&snap.conference); err != nil {
-				return nil, fmt.Errorf("%s: line %d: %w", snap.path, doc.Spec.Line, err)
-			}
-			snap.confAt = doc.Metadata.UpdatedAt
+		case kindConference:
+			snap.conference.UpdatedAt = doc.Metadata.UpdatedAt
+			return doc.Spec.Decode(&snap.conference.Value)
 		case manifest.KindSource:
 			var t Talk
 			if err := doc.Spec.Decode(&t); err != nil {
-				return nil, fmt.Errorf("%s: line %d: %w", snap.path, doc.Spec.Line, err)
+				return err
 			}
-			rec := talkRecord{ID: doc.Metadata.Name, Fields: fieldsOf(t), Topics: t.Topics, UpdatedAt: doc.Metadata.UpdatedAt}
+			rec := talk{Speakers: []string{}}
 			for _, sp := range t.Speakers {
 				rec.Speakers = append(rec.Speakers, sp.Key)
 				snap.speakers[sp.Key] = sp
 			}
-			snap.talks[rec.ID] = rec
-			snap.order = append(snap.order, rec.ID)
+			t.Speakers = nil
+			rec.Talk = t
+			snap.talks[doc.Metadata.Name] = record[talk]{rec, doc.Metadata.UpdatedAt}
+			snap.order = append(snap.order, doc.Metadata.Name)
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return snap, nil
-}
-
-func fieldsOf(t Talk) talkFields {
-	return talkFields{
-		Title: t.Title, Abstract: t.Abstract, Format: t.Format, Level: t.Level, Status: t.Status,
-		Topics: fmt.Sprintf("%q", t.Topics), Schedule: t.Schedule,
-	}
 }
 
 func talkOf(t cnd.Talk) Talk {
@@ -193,10 +161,16 @@ func speakerOf(sp cnd.Speaker) Speaker {
 	return Speaker{Key: sp.Key(), ID: sp.ID, Slug: sp.Slug, Name: sp.Name, Title: sp.Title, Image: sp.Image}
 }
 
-// sameSpeaker compares everything but the time.
-func sameSpeaker(a, b Speaker) bool {
-	a.UpdatedAt, b.UpdatedAt = time.Time{}, time.Time{}
-	return a == b
+// same reports whether two values have the same content, by the hash a bundle
+// revision uses — which also makes nil and empty topic lists the same.
+func same(a, b any) bool { return manifest.Revision(a) == manifest.Revision(b) }
+
+// keep returns rec unchanged if its value is the same as v, or v stamped now.
+func keep[T any](rec record[T], had bool, v T, now time.Time) (record[T], bool) {
+	if had && same(rec.Value, v) {
+		return record[T]{v, rec.UpdatedAt}, false
+	}
+	return record[T]{v, now}, true
 }
 
 // Reconcile records a freshly loaded program, stamping whatever changed, and
@@ -207,22 +181,19 @@ func sameSpeaker(a, b Speaker) bool {
 func (s *Snapshot) Reconcile(p *cnd.Program) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.now()
-	changed := false
+	now := manifest.StampNow(s.Now)
 
-	conf := Conference{
-		Title: p.Conference.Title, StartDate: p.Conference.StartDate, EndDate: p.Conference.EndDate,
-		City: p.Conference.City, Country: p.Conference.Country, Domain: p.Conference.Domain,
-	}
-	if conf != s.conference || s.confAt.IsZero() {
-		s.conference, s.confAt, changed = conf, now, true
-	}
+	c := p.Conference
+	conf, changed := keep(s.conference, !s.conference.UpdatedAt.IsZero(), Conference{
+		Title: c.Title, StartDate: c.StartDate, EndDate: c.EndDate,
+		City: c.City, Country: c.Country, Domain: c.Domain,
+	}, now)
 
-	talks := map[string]talkRecord{}
+	talks := map[string]record[talk]{}
 	speakers := map[string]Speaker{}
 	var order []string
 	for _, t := range p.Talks {
-		rec := talkRecord{ID: t.ID, Fields: fieldsOf(talkOf(t)), Topics: t.Topics}
+		rec := talk{Talk: talkOf(t), Speakers: []string{}}
 		for _, sp := range t.Speakers {
 			fresh := speakerOf(sp)
 			rec.Speakers = append(rec.Speakers, fresh.Key)
@@ -231,31 +202,28 @@ func (s *Snapshot) Reconcile(p *cnd.Program) (bool, error) {
 			}
 			old, had := s.speakers[fresh.Key]
 			fresh.Links = old.Links
-			if had && sameSpeaker(old, fresh) {
-				fresh.UpdatedAt = old.UpdatedAt
-			} else {
-				fresh.UpdatedAt, changed = now, true
-			}
-			speakers[fresh.Key] = fresh
+			r, c := keep(record[Speaker]{withoutTime(old), old.UpdatedAt}, had, fresh, now)
+			r.Value.UpdatedAt = r.UpdatedAt
+			speakers[fresh.Key], changed = r.Value, changed || c
 		}
 		old, had := s.talks[t.ID]
-		if had && old.Fields == rec.Fields && slices.Equal(old.Speakers, rec.Speakers) {
-			rec.UpdatedAt = old.UpdatedAt
-		} else {
-			rec.UpdatedAt, changed = now, true
-		}
-		talks[t.ID] = rec
+		r, c := keep(old, had, rec, now)
+		talks[t.ID], changed = r, changed || c
 		order = append(order, t.ID)
 	}
-	if len(talks) != len(s.talks) || len(speakers) != len(s.speakers) || !slices.Equal(order, s.order) {
+	if len(speakers) != len(s.speakers) || !slices.Equal(order, s.order) {
 		changed = true
 	}
-	s.talks, s.speakers, s.order = talks, speakers, order
-
+	s.conference, s.talks, s.speakers, s.order = conf, talks, speakers, order
 	if !changed {
 		return false, nil
 	}
 	return true, s.save()
+}
+
+func withoutTime(sp Speaker) Speaker {
+	sp.UpdatedAt = time.Time{}
+	return sp
 }
 
 // SetLinks records a speaker's freshly scraped links, stamping and saving if
@@ -270,19 +238,9 @@ func (s *Snapshot) SetLinks(key string, links cnd.Links) error {
 	if !ok || sp.Links == links {
 		return nil
 	}
-	sp.Links, sp.UpdatedAt = links, s.now()
+	sp.Links, sp.UpdatedAt = links, manifest.StampNow(s.Now)
 	s.speakers[key] = sp
 	return s.save()
-}
-
-// Links returns the links the snapshot has for a speaker.
-func (s *Snapshot) Links(key string) cnd.Links {
-	if s == nil {
-		return cnd.Links{}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.speakers[key].Links
 }
 
 // LinksFunc is the resolver's Links callback over this snapshot.
@@ -293,19 +251,26 @@ func (s *Snapshot) Links(key string) cnd.Links {
 // erase handles that were found last time.
 func (s *Snapshot) LinksFunc(fetch func(cnd.Speaker) (cnd.Links, error)) func(cnd.Speaker) cnd.Links {
 	return func(sp cnd.Speaker) cnd.Links {
-		key := sp.Key()
-		if fetch == nil || sp.Slug == "" {
-			return s.Links(key)
+		if fetch != nil && sp.Slug != "" {
+			if links, err := fetch(sp); err == nil {
+				// A failure to save is not worth failing a render over; the
+				// links are in hand and the next run records them.
+				_ = s.SetLinks(sp.Key(), links)
+				return links
+			}
 		}
-		links, err := fetch(sp)
-		if err != nil {
-			return s.Links(key)
-		}
-		// A failure to save is not worth failing a render over; the links are
-		// in hand and the next run records them.
-		_ = s.SetLinks(key, links)
-		return links
+		return s.speaker(sp.Key()).Links
 	}
+}
+
+// speaker is the stored speaker for a key, or the zero Speaker.
+func (s *Snapshot) speaker(key string) Speaker {
+	if s == nil {
+		return Speaker{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.speakers[key]
 }
 
 // TalkUpdatedAt is when a talk's website content last changed.
@@ -319,14 +284,7 @@ func (s *Snapshot) TalkUpdatedAt(id string) time.Time {
 }
 
 // SpeakerUpdatedAt is when a speaker's website content last changed.
-func (s *Snapshot) SpeakerUpdatedAt(key string) time.Time {
-	if s == nil {
-		return time.Time{}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.speakers[key].UpdatedAt
-}
+func (s *Snapshot) SpeakerUpdatedAt(key string) time.Time { return s.speaker(key).UpdatedAt }
 
 // UpdatedAt is when anything in the snapshot last changed.
 func (s *Snapshot) UpdatedAt() time.Time {
@@ -335,72 +293,41 @@ func (s *Snapshot) UpdatedAt() time.Time {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	latest := s.confAt
+	latest := s.conference.UpdatedAt
 	for _, t := range s.talks {
-		latest = later(latest, t.UpdatedAt)
+		latest = manifest.Latest(latest, t.UpdatedAt)
 	}
 	for _, sp := range s.speakers {
-		latest = later(latest, sp.UpdatedAt)
+		latest = manifest.Latest(latest, sp.UpdatedAt)
 	}
 	return latest
 }
 
-func later(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
-}
-
 // Document is a talk's Source document: what the website says about it, its
-// speakers inline. A bundle carries exactly this. On a nil snapshot, or for a
-// talk the snapshot has not recorded, it is built from t with no times.
+// speakers inline. A bundle carries exactly this. For a talk the snapshot has
+// not recorded, or on a nil snapshot, it is built from t with no times.
 func (s *Snapshot) Document(t cnd.Talk) manifest.Document {
 	spec := talkOf(t)
-	var updatedAt time.Time
-	if s != nil {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		updatedAt = s.talks[t.ID].UpdatedAt
-	}
 	for _, sp := range t.Speakers {
 		rec := speakerOf(sp)
-		if s != nil {
-			if stored, ok := s.speakers[rec.Key]; ok {
-				rec.Links, rec.UpdatedAt = stored.Links, stored.UpdatedAt
-			}
-		}
+		stored := s.speaker(rec.Key)
+		rec.Links, rec.UpdatedAt = stored.Links, stored.UpdatedAt
 		spec.Speakers = append(spec.Speakers, rec)
 	}
-	return manifest.Doc(manifest.KindSource, manifest.Metadata{Name: t.ID, UpdatedAt: updatedAt}, spec)
+	return manifest.Doc(manifest.KindSource, manifest.Metadata{Name: t.ID, UpdatedAt: s.TalkUpdatedAt(t.ID)}, spec)
 }
 
 // save writes the snapshot. The caller must hold s.mu.
 func (s *Snapshot) save() error {
-	docs := []manifest.Document{manifest.Doc(KindConference,
-		manifest.Metadata{Name: s.conference.Domain, UpdatedAt: s.confAt}, s.conference)}
-	ids := s.order
-	if len(ids) != len(s.talks) {
-		ids = slices.Sorted(maps.Keys(s.talks))
-	}
-	for _, id := range ids {
+	docs := []manifest.Document{manifest.Doc(kindConference,
+		manifest.Metadata{Name: s.conference.Value.Domain, UpdatedAt: s.conference.UpdatedAt}, s.conference.Value)}
+	for _, id := range s.order {
 		rec := s.talks[id]
-		var t Talk
-		t.Title, t.Abstract, t.Format, t.Level, t.Status = rec.Fields.Title, rec.Fields.Abstract,
-			rec.Fields.Format, rec.Fields.Level, rec.Fields.Status
-		t.Schedule, t.Topics = rec.Fields.Schedule, rec.Topics
-		for _, key := range rec.Speakers {
+		t := rec.Value.Talk
+		for _, key := range rec.Value.Speakers {
 			t.Speakers = append(t.Speakers, s.speakers[key])
 		}
-		docs = append(docs, manifest.Doc(manifest.KindSource,
-			manifest.Metadata{Name: id, UpdatedAt: rec.UpdatedAt}, t))
+		docs = append(docs, manifest.Doc(manifest.KindSource, manifest.Metadata{Name: id, UpdatedAt: rec.UpdatedAt}, t))
 	}
-	data, err := manifest.Encode(fileHeader, docs)
-	if err != nil {
-		return fmt.Errorf("encoding %s: %w", s.path, err)
-	}
-	if err := manifest.WriteAtomic(s.path, data); err != nil {
-		return fmt.Errorf("writing %s: %w", s.path, err)
-	}
-	return nil
+	return manifest.WriteFile(s.path, fileHeader, docs)
 }

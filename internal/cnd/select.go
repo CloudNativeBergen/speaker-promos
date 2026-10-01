@@ -3,6 +3,7 @@ package cnd
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -69,35 +70,11 @@ func (p Program) Find(selector string) []Talk {
 	return nil
 }
 
-// FindOne resolves a selector that must identify exactly one talk.
-func (p Program) FindOne(selector string) (Talk, error) {
-	hits := p.Find(selector)
-	switch len(hits) {
-	case 0:
-		return Talk{}, fmt.Errorf("no talk matches %q", selector)
-	case 1:
-		return hits[0], nil
-	default:
-		var names []string
-		for _, h := range hits {
-			names = append(names, fmt.Sprintf("%q (%s)", h.Title, h.SpeakerNames("and")))
-		}
-		return Talk{}, fmt.Errorf("%q matches %d talks: %s", selector, len(hits), strings.Join(names, ", "))
-	}
-}
-
 // Key identifies a speaker in a manifest and in the preview server's URLs.
 //
-// The CMS slug is used where there is one, but it is not always there: the 2026
-// program has a speaker with an empty slug, and keying corrections by slug left
-// him unaddressable — his edit form posted to /speaker/ and 404'd, and his
-// bundle got no override document to type into. Worse, anything that did get
-// stored under the empty key would have applied to every slugless speaker at
-// once.
-//
-// The fallbacks are stable rather than pretty: the name is the one the program
-// submitted, so correcting the name does not move the key, and the CMS id is
-// there for a speaker with neither.
+// It is the CMS slug where there is one. Not every speaker has one, and an
+// empty key would address every slugless speaker at once, so it falls back to
+// the submitted name — which a correction does not move — and then the CMS id.
 func (s Speaker) Key() string {
 	switch {
 	case s.Slug != "":
@@ -228,6 +205,21 @@ func (s Slot) ShortTrack() string {
 		return rest
 	}
 	return s.Track
+}
+
+// Label renders a slot as one line: "Day 1 · 09:00–11:00 · Platform
+// Engineering", leaving out whatever it does not know.
+func (s Slot) Label() string {
+	var parts []string
+	if s.Day > 0 {
+		parts = append(parts, "Day "+strconv.Itoa(s.Day))
+	}
+	for _, p := range []string{s.TimeRange(), s.ShortTrack()} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // TimeRange renders a slot as "09:00–11:00".

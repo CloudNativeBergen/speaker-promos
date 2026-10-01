@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/vehagn/speaker-promos/internal/export"
 	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
@@ -41,11 +42,7 @@ func (s *Server) exportJob(w http.ResponseWriter, r *http.Request, label, size s
 		j.progress(0, len(talks), "")
 		results, err := exporter.WriteAll(s.opts.OutDir, talks, j.progress)
 
-		files, warnings := 0, 0
-		for _, res := range results {
-			files += len(res.Files)
-			warnings += len(res.Warnings)
-		}
+		files, warnings := export.Totals(results)
 		msg := fmt.Sprintf("wrote %d talks, %d files to %s/", len(results), files, s.opts.OutDir)
 		if single && len(results) == 1 {
 			msg = fmt.Sprintf("wrote %s/%s/ — %d files", s.opts.OutDir, results[0].Dir, files)
@@ -53,11 +50,11 @@ func (s *Server) exportJob(w http.ResponseWriter, r *http.Request, label, size s
 		if skipped > 0 {
 			msg += fmt.Sprintf(" (%d hidden)", skipped)
 		}
-		if !s.hasConverter {
+		if !s.opts.Exporter.HasConverter {
 			msg += " — SVG only, no rasteriser on PATH"
 		}
-		if warnings > 0 {
-			msg += fmt.Sprintf(", %d warning(s)", warnings)
+		if n := len(warnings); n > 0 {
+			msg += fmt.Sprintf(", %d warning(s)", n)
 		}
 		return func(w http.ResponseWriter, r *http.Request) {
 			if err != nil {

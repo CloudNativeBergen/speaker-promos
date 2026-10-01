@@ -93,54 +93,18 @@ func (s *Set) ImportFrom(src *Set, opts ImportOptions) ([]Change, error) {
 	var changes []Change
 	dirty := false
 	for _, key := range slices.Sorted(maps.Keys(theirSpeakers)) {
-		theirs := trimSpeaker(theirSpeakers[key].Spec)
-		ours := s.speakers[key].Spec
-		merged, applied, cs := merge3(ours, theirs, revisions[ref{KindSpeakerOverride, key}], opts.Force,
-			func(a, b SpeakerSpec) []fieldDiff {
-				var out []fieldDiff
-				for _, f := range specFields {
-					if x, y := *f.of(&a), *f.of(&b); x != y {
-						out = append(out, fieldDiff{f.name, x, y})
-					}
-				}
-				return out
-			},
-			func(ours, theirs SpeakerSpec) SpeakerSpec {
-				for _, f := range specFields {
-					if v := *f.of(&theirs); v != "" {
-						*f.of(&ours) = v
-					}
-				}
-				return ours
-			})
+		merged, apply, cs := merge3(speakerFields, s.speakers[key].Spec, theirSpeakers[key].Spec,
+			revisions[ref{KindSpeakerOverride, key}], opts.Force)
 		changes = append(changes, tag(cs, KindSpeakerOverride, key)...)
-		if applied && !opts.DryRun && putEntry(s.speakers, key, merged, now) {
+		if apply && !opts.DryRun && putEntry(s.speakers, key, merged, now) {
 			dirty = true
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(theirTalks)) {
-		theirs := trimTalk(theirTalks[id].Spec)
-		ours := s.talks[id].Spec
-		merged, applied, cs := merge3(ours, theirs, revisions[ref{KindTalkOverride, id}], opts.Force,
-			func(a, b TalkSpec) []fieldDiff {
-				var out []fieldDiff
-				for _, f := range talkFields {
-					if x, y := f.get(a), f.get(b); x != y {
-						out = append(out, fieldDiff{f.name, x, y})
-					}
-				}
-				return out
-			},
-			func(ours, theirs TalkSpec) TalkSpec {
-				for _, f := range talkFields {
-					if v := f.get(theirs); v != "" {
-						f.set(&ours, v)
-					}
-				}
-				return ours
-			})
+		merged, apply, cs := merge3(talkFields, s.talks[id].Spec, theirTalks[id].Spec,
+			revisions[ref{KindTalkOverride, id}], opts.Force)
 		changes = append(changes, tag(cs, KindTalkOverride, id)...)
-		if applied && !opts.DryRun && putEntry(s.talks, id, merged, now) {
+		if apply && !opts.DryRun && putEntry(s.talks, id, merged, now) {
 			dirty = true
 		}
 	}
@@ -151,26 +115,22 @@ func (s *Set) ImportFrom(src *Set, opts ImportOptions) ([]Change, error) {
 	return changes, s.save()
 }
 
-// fieldDiff is one field that differs between two specs.
-type fieldDiff struct{ field, from, to string }
-
 // merge3 decides one object's merge; see ImportFrom. It returns the spec to
 // store, whether to store it, and the field changes to report.
-func merge3[T comparable](ours, theirs T, base string, force bool,
-	diff func(a, b T) []fieldDiff, overlay func(ours, theirs T) T) (T, bool, []Change) {
+func merge3[T comparable](fs fields[T], ours, theirs T, base string, force bool) (T, bool, []Change) {
+	theirs = fs.trim(theirs)
 	report := func(merged T, conflict bool) []Change {
 		var out []Change
-		for _, d := range diff(ours, merged) {
+		for _, d := range fs.diffs(ours, merged) {
 			out = append(out, Change{Field: d.field, From: d.from, To: d.to, Conflict: conflict})
 		}
 		return out
 	}
-
-	if base == "" {
-		merged := overlay(ours, theirs)
-		return merged, merged != ours, report(merged, false)
-	}
 	switch {
+	case base == "":
+		// Hand-written, so there is no base: take only what it sets.
+		merged := fs.overlay(theirs, ours)
+		return merged, merged != ours, report(merged, false)
 	case Revision(theirs) == base, ours == theirs:
 		return ours, false, nil
 	case Revision(ours) == base, force:
@@ -185,29 +145,6 @@ func tag(cs []Change, kind, name string) []Change {
 		cs[i].Kind, cs[i].Name = kind, name
 	}
 	return cs
-}
-
-// Speakers returns every speaker override, keyed by speaker key. The map is a
-// copy.
-func (s *Set) Speakers() map[string]SpeakerSpec {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make(map[string]SpeakerSpec, len(s.speakers))
-	for k, e := range s.speakers {
-		out[k] = e.Spec
-	}
-	return out
-}
-
-// Talks returns every talk override, keyed by talk id. The map is a copy.
-func (s *Set) Talks() map[string]TalkSpec {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make(map[string]TalkSpec, len(s.talks))
-	for k, e := range s.talks {
-		out[k] = e.Spec
-	}
-	return out
 }
 
 // SortChanges orders changes for a stable report: applied ones first, then

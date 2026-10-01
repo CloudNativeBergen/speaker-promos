@@ -7,65 +7,38 @@ import (
 	"os"
 	"time"
 
-	"github.com/vehagn/speaker-promos/internal/export"
 	"github.com/vehagn/speaker-promos/internal/progress"
-	"github.com/vehagn/speaker-promos/internal/theme"
 	"github.com/vehagn/speaker-promos/internal/web"
 )
 
 func cmdServe(args []string) error {
 	fs := newFlagSet("serve")
-	var common commonFlags
-	common.register(fs)
-	var manifestPath manifestFlag
-	manifestPath.register(fs)
+	var pf projectFlags
+	var cf copyFlags
+	var kf cardFlags
+	pf.register(fs)
+	cf.register(fs)
+	kf.register(fs)
 	addr := fs.String("addr", "localhost:8787", "address to listen on")
 	size := fs.String("size", "portrait", "card size to preview")
-	themePath := fs.String("theme", "", "theme YAML to merge over the built-in theme")
 	out := fs.String("out", "out", "directory the Export button writes into")
-	formats := fs.String("formats", "svg,png,jpg", "formats the Export button writes: any of svg, png, jpg")
-	width := fs.Int("width", 0, "raster width in pixels (default: the card's own width)")
-	quality := fs.Int("jpeg-quality", 88, "JPEG quality, 1-100")
-	noPhotos := fs.Bool("no-photos", false, "skip speaker photos (renders initials instead)")
-	noLinks := fs.Bool("no-links", false, "use the handles last recorded in the snapshot rather than fetching speaker pages")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 
-	th, err := theme.Load(*themePath)
+	p, err := pf.open()
 	if err != nil {
 		return err
 	}
-	set, err := manifestPath.load()
+	resolver, err := p.resolver(cf)
 	if err != nil {
 		return err
 	}
-	loader := common.loader()
-	program, snap, err := common.load(loader)
+	exporter, err := p.exporter(kf, resolver)
 	if err != nil {
 		return err
 	}
-	images := common.photoCache(!*noPhotos)
-
-	wantFormats, err := export.ParseFormats(*formats)
-	if err != nil {
-		return err
-	}
-
-	server, err := web.New(web.Options{
-		Program:     program,
-		Set:         set,
-		Source:      snap,
-		Theme:       th,
-		Images:      images,
-		Loader:      loader,
-		Size:        *size,
-		OutDir:      *out,
-		NoLinks:     *noLinks,
-		Formats:     wantFormats,
-		RasterWidth: *width,
-		JPEGQuality: *quality,
-	})
+	server, err := web.New(web.Options{Exporter: exporter, Size: *size, OutDir: *out})
 	if err != nil {
 		return err
 	}
@@ -85,8 +58,8 @@ func cmdServe(args []string) error {
 	report := bar.Func()
 	server.Warm(6, func(done, total int) { report(done, total, "") })
 	bar.Clear()
-	fmt.Printf("%s — %d talks\n", program.Conference.Title, len(program.Talks))
-	fmt.Printf("overrides: %s\n", set.Path())
+	fmt.Printf("%s — %d talks\n", p.program.Conference.Title, len(p.program.Talks))
+	fmt.Printf("overrides: %s\n", p.set.Path())
 	fmt.Printf("\n  http://%s\n\n", ln.Addr())
 	fmt.Println("Edits save immediately. Ctrl-C to stop.")
 

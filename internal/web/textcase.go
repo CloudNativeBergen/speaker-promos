@@ -25,7 +25,7 @@ func (s *Server) handleTalkTitleCase(w http.ResponseWriter, r *http.Request) {
 	// title is a few words and detection needs prose. "Praktisk AI-drevet
 	// Kubernetes-drift" carries no Norwegian function words at all and reads as
 	// English on its own.
-	language := s.opts.Language
+	language := s.resolver.Language
 	if t, ok := s.resolver.ByID(r.PathValue("id")); ok {
 		language = t.Language
 	}

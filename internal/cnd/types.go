@@ -17,12 +17,8 @@ type Conference struct {
 	Country   string `json:"country"`
 	Domain    string `json:"domain"` // primary public domain
 	// LogoBright is the conference wordmark as inline SVG, in the light-on-dark
-	// variant. Promo cards paint on a saturated brand gradient, so this is the
-	// variant that applies; LogoDark is kept for light themes.
+	// variant: promo cards paint on a saturated brand gradient.
 	LogoBright string `json:"-"`
-	LogoDark   string `json:"-"`
-	// LogomarkBright is the square mark without wordmark, for tight layouts.
-	LogomarkBright string `json:"-"`
 }
 
 // Speaker is one presenter of a talk.
@@ -64,11 +60,9 @@ func (s ImageSource) Empty() bool { return s.URL == "" && s.Path == "" }
 // ImageSource resolves a photo reference — a CMS URL, any other URL, or a path
 // on disk — for a square of the given size.
 //
-// Transform parameters are added ONLY for the CMS CDN, which is the only host
-// that understands them. They used to be appended to every URL, which was
-// wrong in both directions: a GitHub avatar or LinkedIn photo silently ignored
-// them and came back at its own size, and an overridden photo on an arbitrary
-// host could be handed query parameters that mean something else there.
+// Transform parameters are added only for the CMS CDN, the one host that
+// understands them; anywhere else they would be ignored at best, and could
+// mean something else entirely.
 func ImageSourceOf(image string, size int) ImageSource {
 	image = strings.TrimSpace(image)
 	switch {
@@ -223,32 +217,26 @@ func (c Conference) Location() string {
 	return strings.Join(parts, ", ")
 }
 
-// URL is the conference site root.
-func (c Conference) URL() string {
+// page is a page on the conference site, or "" with no domain to link to.
+func (c Conference) page(path string) string {
 	if c.Domain == "" {
 		return ""
 	}
-	return "https://" + c.Domain
+	return "https://" + c.Domain + path
 }
 
 // ProgramURL is the schedule page.
 //
 // This is the closest thing to a link for an individual talk. The site has no
-// per-talk page — its sitemap carries 49 `/speaker/<slug>` URLs and exactly one
-// `/program` — and the program page keeps its filters in client state with no
-// URL parameters and renders no per-talk anchors, so there is nothing to deep
-// link to either.
-func (c Conference) ProgramURL() string {
-	if c.Domain == "" {
-		return ""
-	}
-	return "https://" + c.Domain + "/program"
-}
+// per-talk page — its sitemap carries one `/speaker/<slug>` per speaker and a
+// single `/program` — and the program page keeps its filters in client state,
+// with no URL parameters or per-talk anchors to deep link to.
+func (c Conference) ProgramURL() string { return c.page("/program") }
 
 // SpeakerURL is the public profile page for a speaker.
 func (c Conference) SpeakerURL(s Speaker) string {
-	if c.Domain == "" || s.Slug == "" {
+	if s.Slug == "" {
 		return ""
 	}
-	return fmt.Sprintf("https://%s/speaker/%s", c.Domain, s.Slug)
+	return c.page("/speaker/" + s.Slug)
 }

@@ -21,12 +21,12 @@
   <div class="detail">
     <h2>{{.Talk.Title}}{{with .Talk.Posted}} <span class="badge">posted {{.}}</span>{{end}}</h2>
     <p class="slot">
-      Day {{.Talk.Schedule.Day}} · {{.Talk.Schedule.TimeRange}} · {{.Talk.Schedule.ShortTrack}}
+      {{.Talk.Schedule.Label}}
       {{with .Talk.FormatLabel}} · {{.}}{{end}}
     </p>
     <p class="times">
-      {{with day .WebsiteAt}}website updated {{.}}{{else}}website data not yet recorded{{end}}
-      {{- with day .EditedAt}} · edited {{.}}{{end}}
+      {{with day .Talk.WebsiteChanged}}website updated {{.}}{{else}}website data not yet recorded{{end}}
+      {{- with day .Talk.Edited}} · edited {{.}}{{end}}
     </p>
 
     {{/* Talk-level overrides. hx-include picks up the hidden checkbox too. */}}
@@ -111,14 +111,14 @@
     {{range .Drafts}}
     <div class="draft">
       <header>
-        <span>{{.Draft.Platform}}</span>
+        <span>{{.Platform}}</span>
         <span class="lang">{{$.Talk.Language}}</span>
         <span class="count {{if .Over}}over{{end}}">{{.Count}}</span>
         {{if .Limit}}<span class="meter"><i class="{{if .Over}}over{{end}}" style="width:{{.Percent}}%"></i></span>{{end}}
-        <button type="button" data-copy="copy-{{$.Anchor}}-{{.Draft.Platform}}">Copy</button>
+        <button type="button" data-copy="copy-{{$.Anchor}}-{{.Platform}}">Copy</button>
       </header>
-      <pre id="copy-{{$.Anchor}}-{{.Draft.Platform}}">{{.Draft.Text}}</pre>
-      {{with .Draft.Notes}}
+      <pre id="copy-{{$.Anchor}}-{{.Platform}}">{{.Text}}</pre>
+      {{with .Notes}}
       <ul class="notes">{{range .}}<li>{{.}}</li>{{end}}</ul>
       {{end}}
     </div>

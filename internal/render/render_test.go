@@ -324,8 +324,8 @@ func TestInitials(t *testing.T) {
 		"Øyvind Riise":              "ØR",
 		"  spaced   name   here   ": "SN",
 	} {
-		if got := Initials(in); got != want {
-			t.Errorf("Initials(%q) = %q, want %q", in, got, want)
+		if got := initials(in); got != want {
+			t.Errorf("initials(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

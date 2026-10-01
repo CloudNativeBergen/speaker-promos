@@ -53,6 +53,19 @@ type Result struct {
 	Overflow []string
 }
 
+// Warnings are what a user should hear about the card: emoji some renderers
+// drop, and text that had to be cut to fit.
+func (r Result) Warnings() []string {
+	var out []string
+	if r.EmojiFallback {
+		out = append(out, "contains emoji, which Inkscape and librsvg drop")
+	}
+	for _, el := range r.Overflow {
+		out = append(out, "text truncated to fit ("+el+")")
+	}
+	return out
+}
+
 // Card renders one talk at one card size.
 //
 // The talk's language selects the wording — currently just the conjunction
@@ -64,12 +77,9 @@ func (r *Renderer) Card(conf cnd.Conference, t promo.Talk, size string) (Result,
 // Inspect reports what rendering a card would warn about — truncated text, or
 // emoji a renderer will drop — without producing a usable card.
 //
-// It exists because the preview server needs those warnings for every row on
-// the page, and getting them from a full Card render meant fetching a photo and
-// base64-encoding two fonts per row. That is ~25 MB of work to read two
-// booleans, and it did network I/O: one unresponsive photo host hung the page
-// for as long as it stayed silent. The warnings come from the text layout,
-// which needs neither.
+// The preview server needs those warnings for every row on the page. They come
+// from the text layout alone, so this skips fetching photos and embedding
+// fonts — the expensive part of a render, and the only network I/O.
 //
 // The returned SVG is not a card and must not be served.
 func (r *Renderer) Inspect(conf cnd.Conference, t promo.Talk, size string) (Result, error) {
@@ -233,8 +243,8 @@ func (r *Renderer) drawPhotos(c *canvas, p *pass, speakers []promo.Speaker,
 
 // monogram draws a speaker's initials, used when no photo exists.
 func (r *Renderer) monogram(c *canvas, name string, cx, cy, box float64) {
-	initials := Initials(name)
-	if initials == "" {
+	letters := initials(name)
+	if letters == "" {
 		return
 	}
 	f, err := r.Fonts.Face("heading")
@@ -244,12 +254,12 @@ func (r *Renderer) monogram(c *canvas, name string, cx, cy, box float64) {
 	size := box * 0.34
 	// Centre the glyphs vertically by nudging the baseline down by roughly a
 	// third of the cap height.
-	c.textLine(initials, f, r.Theme.EmojiFallback, cx, cy+size*0.34, size, 0.02, "middle",
+	c.textLine(letters, f, r.Theme.EmojiFallback, cx, cy+size*0.34, size, 0.02, "middle",
 		parsePaint(r.Theme.Palette.Text), 0.85)
 }
 
-// Initials returns up to two initials for a name.
-func Initials(name string) string {
+// initials returns up to two initials for a name.
+func initials(name string) string {
 	parts := strings.Fields(name)
 	var out []rune
 	for _, p := range parts {

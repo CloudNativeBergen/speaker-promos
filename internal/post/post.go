@@ -3,6 +3,7 @@ package post
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
@@ -20,10 +21,31 @@ type Draft struct {
 	// Notes are things the user should check before posting: guessed employers,
 	// speakers with no handle to mention, a post that had to be shortened.
 	Notes []string
+	// Limit is the platform's length limit, or 0 for none worth counting.
+	Limit int
 }
 
 // Runes is the post's length as a platform would count it.
 func (d Draft) Runes() int { return len([]rune(d.Text)) }
+
+// Over reports whether the post is longer than its platform allows.
+func (d Draft) Over() bool { return d.Limit > 0 && d.Runes() > d.Limit }
+
+// Count renders the length as "260/300" where a limit applies, else "582".
+func (d Draft) Count() string {
+	if d.Limit <= 0 {
+		return fmt.Sprint(d.Runes())
+	}
+	return fmt.Sprintf("%d/%d", d.Runes(), d.Limit)
+}
+
+// Percent is how much of the limit the post uses, capped at 100, for a meter.
+func (d Draft) Percent() int {
+	if d.Limit <= 0 {
+		return 0
+	}
+	return min(d.Runes()*100/d.Limit, 100)
+}
 
 // Input is everything needed to draft copy for a talk.
 type Input struct {
@@ -85,8 +107,7 @@ func LinkedIn(in Input) Draft {
 // the teaser only if it still fits. Trimming afterwards would risk cutting the
 // link, which is the one part that must survive.
 func Bluesky(in Input) Draft {
-	var d Draft
-	d.Platform = "bluesky"
+	d := Draft{Platform: "bluesky", Limit: BlueskyLimit}
 	t := in.Talk
 	l := in.language()
 
@@ -122,9 +143,8 @@ func Bluesky(in Input) Draft {
 	}
 
 	// Optional sections accumulate in display order. The teaser is sized
-	// against the room left once the slot line is ALSO accounted for, so that
-	// adding the teaser cannot squeeze the slot out — composing the teaser
-	// variant from scratch previously dropped it.
+	// against the room left once the slot line is also accounted for, so that
+	// adding the teaser cannot squeeze the slot out.
 	mid := ""
 	if room := BlueskyLimit - len([]rune(head+slot+tail)) - 2; room > 60 {
 		if teaser := cnd.FirstSentences(t.Abstract, room); teaser != "" {
@@ -201,24 +221,19 @@ func quoteTitle(title string, l lang.Language) string {
 // The names are looked up rather than taken from time.Format, which only knows
 // English.
 func dayLabel(conf cnd.Conference, s cnd.Slot, l lang.Language) string {
-	if d := parseDate(s.Date); d != nil {
+	if d, err := time.Parse(time.DateOnly, s.Date); err == nil {
 		w := l.Words()
-		return w.Date(w, *d)
+		return w.Date(w, d)
 	}
 	return conf.DateRange()
 }
 
-// talkURL is the link a promo points at: the program.
+// talkURL is the link a promo points at: the program, since a talk has no page
+// of its own (see cnd.Conference.ProgramURL).
 //
-// A talk has no page of its own — the site's sitemap has 49 `/speaker/<slug>`
-// URLs and one `/program`, and the program page holds its filters in client
-// state with no URL parameters or per-talk anchors, so there is nothing to deep
-// link to. The program is therefore the closest thing to "this talk".
-//
-// This deliberately does NOT fall back to a speaker's profile. Doing that read
-// oddly on a multi-speaker talk, where it silently promoted whoever happened to
-// be listed first. Speaker profiles are still surfaced — as Bluesky mentions in
-// the post itself, and as URLs from Mentions for LinkedIn.
+// It deliberately does not fall back to a speaker's profile, which on a
+// multi-speaker talk would promote whoever is listed first. Profiles are
+// surfaced as mentions instead.
 func talkURL(in Input) string {
 	return in.Conference.ProgramURL()
 }

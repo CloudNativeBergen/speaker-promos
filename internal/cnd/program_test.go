@@ -79,9 +79,6 @@ func TestDecodeConference(t *testing.T) {
 	if got := c.DateRange(); got != "26–27 October 2026" {
 		t.Errorf("DateRange = %q", got)
 	}
-	if got := c.URL(); got != "https://2026.cloudnativedays.no" {
-		t.Errorf("URL = %q", got)
-	}
 	// The logo arrives as a $ref to a ~190 KB row; if it were left unresolved
 	// the card would contain the literal text "$36".
 	if !strings.HasPrefix(c.LogoBright, "<svg") {
@@ -89,10 +86,6 @@ func TestDecodeConference(t *testing.T) {
 	}
 	if len(c.LogoBright) < 1000 {
 		t.Errorf("LogoBright suspiciously short: %d bytes", len(c.LogoBright))
-	}
-	// logomarkDark is "$undefined" upstream and must be dropped, not pasted in.
-	if strings.Contains(c.LogoDark, "$") && !strings.HasPrefix(c.LogoDark, "<svg") {
-		t.Errorf("LogoDark = %.40q, want SVG or empty", c.LogoDark)
 	}
 }
 
@@ -169,10 +162,7 @@ func TestAbstractsAreFlattenedPlainText(t *testing.T) {
 
 	// The Norwegian workshop's abstract is assembled from a $ref mid-paragraph;
 	// resolving it is what makes the full sentence appear.
-	s, err := p.FindOne("brødrister")
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := findOne(t, p, "brødrister")
 	if !strings.Contains(s.Abstract, "digital suverenitet") {
 		t.Errorf("abstract missing text from the resolved reference:\n%.300s", s.Abstract)
 	}
@@ -245,49 +235,36 @@ func TestFindSelectorTiers(t *testing.T) {
 	p := fixture(t)
 
 	// Speaker slug.
-	got, err := p.FindOne("dario-haaland")
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := findOne(t, p, "dario-haaland")
 	if !strings.Contains(got.Title, "brødrister") {
 		t.Errorf("slug selector found %q", got.Title)
 	}
 
 	// Talk id prefix beats everything else.
-	byID, err := p.FindOne(got.ID[:8])
-	if err != nil {
-		t.Fatal(err)
-	}
+	byID := findOne(t, p, got.ID[:8])
 	if byID.ID != got.ID {
 		t.Errorf("id selector found %q", byID.Title)
 	}
 
 	// Title substring, case-insensitively.
-	if _, err := p.FindOne("skyen kjøre"); err != nil {
-		t.Errorf("title substring: %v", err)
-	}
+	findOne(t, p, "skyen kjøre")
 
 	// Slug-form title, so Norwegian letters can be typed as ASCII.
-	if _, err := p.FindOne("skyen-kjore"); err != nil {
-		t.Errorf("slug-form title: %v", err)
-	}
+	findOne(t, p, "skyen-kjore")
 
-	if _, err := p.FindOne("definitely-not-a-talk"); err == nil {
-		t.Error("want error for unmatched selector")
+	if hits := p.Find("definitely-not-a-talk"); len(hits) != 0 {
+		t.Errorf("an unmatched selector found %d talks", len(hits))
 	}
 }
 
-func TestFindOneReportsAmbiguity(t *testing.T) {
-	p := fixture(t)
-	// A single letter matches many titles; the error must name the candidates
-	// rather than silently picking one.
-	_, err := p.FindOne("e")
-	if err == nil {
-		t.Fatal("want ambiguity error")
+// findOne resolves a selector that must identify exactly one talk.
+func findOne(t *testing.T, p *Program, selector string) Talk {
+	t.Helper()
+	hits := p.Find(selector)
+	if len(hits) != 1 {
+		t.Fatalf("%q matched %d talks, want 1", selector, len(hits))
 	}
-	if !strings.Contains(err.Error(), "matches") {
-		t.Errorf("error = %v", err)
-	}
+	return hits[0]
 }
 
 func TestFileStemIsScheduleOrdered(t *testing.T) {
@@ -416,14 +393,8 @@ func TestSlugifyNorwegian(t *testing.T) {
 func TestFindMatchesTransliteratedSpeakerSlug(t *testing.T) {
 	p := fixture(t)
 
-	exact, err := p.FindOne("audun-øygard")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ascii, err := p.FindOne("audun-oygard")
-	if err != nil {
-		t.Fatalf("ASCII form of a Norwegian slug did not match: %v", err)
-	}
+	exact := findOne(t, p, "audun-øygard")
+	ascii := findOne(t, p, "audun-oygard")
 	if ascii.ID != exact.ID {
 		t.Errorf("ASCII selector found %q, want %q", ascii.Title, exact.Title)
 	}
@@ -440,7 +411,7 @@ func TestConferenceURLs(t *testing.T) {
 	// Without a domain there is nothing valid to emit, so callers get "" and
 	// can omit the link rather than print a broken one.
 	empty := Conference{}
-	if empty.ProgramURL() != "" || empty.URL() != "" || empty.SpeakerURL(Speaker{Slug: "x"}) != "" {
+	if empty.ProgramURL() != "" || empty.SpeakerURL(Speaker{Slug: "x"}) != "" {
 		t.Error("a conference with no domain should yield no URLs")
 	}
 	// A speaker with no slug has no profile page.

@@ -126,3 +126,33 @@ func ImportFiles(target *Set, paths []string, opts ImportOptions, report progres
 	}
 	return out, nil
 }
+
+// Tally counts the changes an import applied, and the conflicts it left.
+func Tally(results []FileChanges) (applied, conflicts int) {
+	for _, res := range results {
+		for _, c := range res.Changes {
+			if c.Conflict {
+				conflicts++
+			} else {
+				applied++
+			}
+		}
+	}
+	return applied, conflicts
+}
+
+// Summary says what an import did in a sentence, for `promo import` and the
+// Import buttons alike. force names how to take the bundles' side of a
+// conflict in the caller's interface.
+func Summary(results []FileChanges, force string) string {
+	applied, conflicts := Tally(results)
+	msg := fmt.Sprintf("imported %d change(s) from %d file(s)", applied, len(results))
+	if applied == 0 && conflicts == 0 {
+		msg = fmt.Sprintf("nothing to import from %d file(s): no bundle was edited since it was exported", len(results))
+	}
+	if conflicts > 0 {
+		msg += fmt.Sprintf(" — %d conflict(s) kept as the manifest has them, since they changed in both "+
+			"places; %s to take the bundles' version", conflicts, force)
+	}
+	return msg
+}

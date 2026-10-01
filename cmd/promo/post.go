@@ -4,39 +4,30 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/post"
 )
 
 func cmdPost(args []string) error {
 	fs := newFlagSet("post")
-	var common commonFlags
-	common.register(fs)
+	var pf projectFlags
+	var cf copyFlags
+	pf.register(fs)
+	cf.register(fs)
 	all := fs.Bool("all", false, "draft copy for every talk")
 	platform := fs.String("platform", "both", "linkedin, bluesky, or both")
-	var manifestPath manifestFlag
-	manifestPath.register(fs)
-	noLinks := fs.Bool("no-links", false, "use the handles last recorded in the snapshot rather than fetching speaker pages")
-	language := fs.String("language", "auto", "copy language: auto, en or no")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 
-	set, err := manifestPath.load()
+	p, err := pf.open()
 	if err != nil {
 		return err
 	}
-	copyLang, err := lang.ParseLanguage(*language)
+	resolver, err := p.resolver(cf)
 	if err != nil {
 		return err
 	}
-
-	loader := common.loader()
-	program, snap, err := common.load(loader)
-	if err != nil {
-		return err
-	}
-	talks, err := selectTalks(resolver(program, set, snap, copyLang, loader, *noLinks), *all, fs.Args())
+	talks, err := selectTalks(resolver, *all, fs.Args())
 	if err != nil {
 		return err
 	}
@@ -45,7 +36,7 @@ func cmdPost(args []string) error {
 		if i > 0 {
 			fmt.Println(strings.Repeat("─", 72))
 		}
-		in := post.Input{Conference: program.Conference, Talk: t}
+		in := post.Input{Conference: p.program.Conference, Talk: t}
 
 		var drafts []post.Draft
 		switch *platform {
@@ -73,14 +64,11 @@ func cmdPost(args []string) error {
 }
 
 func printDraft(d post.Draft) {
-	limit := ""
-	if d.Platform == "bluesky" {
-		limit = fmt.Sprintf("/%d", post.BlueskyLimit)
-		if d.Runes() > post.BlueskyLimit {
-			limit += " OVER LIMIT"
-		}
+	over := ""
+	if d.Over() {
+		over = " OVER LIMIT"
 	}
-	fmt.Printf("\n── %s (%d%s chars) ──\n\n%s\n", d.Platform, d.Runes(), limit, d.Text)
+	fmt.Printf("\n── %s (%s chars%s) ──\n\n%s\n", d.Platform, d.Count(), over, d.Text)
 	if len(d.Notes) > 0 {
 		fmt.Println("\ncheck before posting:")
 		for _, n := range d.Notes {
