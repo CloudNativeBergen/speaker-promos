@@ -248,65 +248,170 @@ func TestCopyFilesHoldOnlyThePostBody(t *testing.T) {
 	}
 }
 
-// The exported manifest is pre-filled with what the card actually used, so it
-// can be edited and merged back rather than being a blank template.
-func TestManifestIsPrefilledAndReloadable(t *testing.T) {
+// docsOf splits a bundle into its documents, keyed "Kind/name".
+func docsOf(t *testing.T, body string) (kinds []string, docs map[string]string) {
+	t.Helper()
+	docs = map[string]string{}
+	for _, doc := range strings.Split(body, "\n---\n") {
+		var kind, name string
+		for _, line := range strings.Split(doc, "\n") {
+			if v, ok := strings.CutPrefix(line, "kind: "); ok {
+				kind = v
+			}
+			if v, ok := strings.CutPrefix(line, "  name: "); ok && name == "" {
+				name = v
+			}
+		}
+		kinds = append(kinds, kind)
+		docs[kind+"/"+name] = doc
+	}
+	return kinds, docs
+}
+
+func readBundle(t *testing.T, root string, res Result) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+// The three parts are kept apart: what the website said, what you corrected,
+// and what came out. Above all, the overrides carry only real corrections —
+// the guessed employer is in Output, marked as a guess, and never in an
+// override where importing it would confirm it.
+func TestBundleSeparatesSourceOverridesAndOutput(t *testing.T) {
+	e, root := newExporter(t, []string{FormatSVG}, false)
+	res, err := e.write(root, testTalk())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readBundle(t, root, res)
+
+	kinds, docs := docsOf(t, body)
+	if got := strings.Join(kinds, ","); got != "Source,TalkOverride,SpeakerOverride,Output" {
+		t.Errorf("documents = %s", got)
+	}
+	for _, want := range []string{"apiVersion: " + manifest.APIVersion, "title: Kan skyen kjøre", "key: dario-haaland",
+		"title: Bysten Labs", "startTime: \"09:00\"", "abstract: Plattformer bygges"} {
+		if !strings.Contains(docs["Source/talk-1"], want) {
+			t.Errorf("Source missing %q:\n%s", want, docs["Source/talk-1"])
+		}
+	}
+	if sp := docs["SpeakerOverride/dario-haaland"]; !strings.Contains(sp, "spec: {}") || !strings.Contains(sp, "revision: ") {
+		t.Errorf("an uncorrected speaker's override should be empty and carry a revision:\n%s", sp)
+	}
+	if strings.Contains(docs["SpeakerOverride/dario-haaland"], "Bysten") {
+		t.Error("the guessed employer was pre-filled into the override")
+	}
+	for _, want := range []string{"employer: Bysten Labs", "employerGuessed: true", "hasPhoto: false",
+		"profileUrl: https://2026.cloudnativedays.no/speaker/dario-haaland", "formatLabel: 2 h workshop",
+		"programUrl: https://2026.cloudnativedays.no/program", "- portrait.svg"} {
+		if !strings.Contains(docs["Output/talk-1"], want) {
+			t.Errorf("Output missing %q:\n%s", want, docs["Output/talk-1"])
+		}
+	}
+
+	// It loads as a manifest, and imports back as nothing.
+	reloaded, err := manifest.Load(filepath.Join(root, res.Dir, "promo.yaml"))
+	if err != nil {
+		t.Fatalf("exported bundle does not load: %v", err)
+	}
+	if reloaded.BundleTalk() != "talk-1" {
+		t.Errorf("BundleTalk = %q", reloaded.BundleTalk())
+	}
+	changes, err := e.Resolver.Set.ImportFrom(reloaded, manifest.ImportOptions{DryRun: true})
+	if err != nil || len(changes) != 0 {
+		t.Errorf("an unedited bundle imports %v, %v", changes, err)
+	}
+}
+
+// An export must be reproducible: no generation time, so an unchanged
+// re-export is byte-identical and a bundle in git does not churn.
+func TestBundleIsByteStable(t *testing.T) {
+	e, root := newExporter(t, []string{FormatSVG}, false)
+	first, err := e.write(root, testTalk())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readBundle(t, root, first)
+	second, err := e.write(root, testTalk())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readBundle(t, root, second) != body {
+		t.Error("promo.yaml is not byte-stable across runs")
+	}
+}
+
+// Editing a bundle's override and importing it is the round trip export
+// exists for.
+func TestAnEditedBundleImportsTheEdit(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
 	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, res.Dir, "promo.yaml")
-
-	body, err := os.ReadFile(path)
+	body := strings.Replace(readBundle(t, root, res), "spec: {}\n---\napiVersion: "+manifest.APIVersion+"\nkind: Output",
+		"spec:\n  employer: Bysten Labs AS\n---\napiVersion: "+manifest.APIVersion+"\nkind: Output", 1)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src, err := manifest.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"apiVersion: " + manifest.APIVersion,
-		"kind: SpeakerOverride", "name: dario-haaland", "employer: Bysten Labs"} {
-		if !strings.Contains(string(body), want) {
-			t.Errorf("promo.yaml missing %q:\n%s", want, body)
-		}
-	}
-
-	// It must be a manifest the tool accepts back, not merely manifest-shaped.
-	reloaded, err := manifest.Load(path)
+	changes, err := e.Resolver.Set.ImportFrom(src, manifest.ImportOptions{})
 	if err != nil {
-		t.Fatalf("exported manifest does not load: %v", err)
+		t.Fatal(err)
 	}
-	spec, ok := reloaded.Speaker("dario-haaland")
-	if !ok || spec.Employer != "Bysten Labs" {
-		t.Errorf("reloaded spec = %+v, ok=%v", spec, ok)
+	if len(changes) != 1 || changes[0].String() != `SpeakerOverride/dario-haaland employer: "Bysten Labs AS"` {
+		t.Errorf("changes = %v", changes)
 	}
 }
 
-// A talk override is written only when there is one; an empty object would be
-// noise in every folder.
-func TestManifestOmitsAnEmptyTalkOverride(t *testing.T) {
+// The source records what was submitted, the override what you changed, and
+// the output what the card shows.
+func TestBundleKeepsTheSubmittedTitle(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
+	if err := e.Resolver.Set.SetTalk("talk-1", manifest.TalkSpec{DisplayTitle: "Kortere tittel", Posted: "2026-10-16"}); err != nil {
+		t.Fatal(err)
+	}
 	res, err := e.write(root, testTalk())
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
-	if strings.Contains(string(body), "kind: TalkOverride") {
-		t.Errorf("unexpected TalkOverride:\n%s", body)
+	_, docs := docsOf(t, readBundle(t, root, res))
+	if !strings.Contains(docs["Source/talk-1"], "title: Kan skyen kjøre") {
+		t.Errorf("Source should keep the submitted title:\n%s", docs["Source/talk-1"])
 	}
-
-	// With a display title set, it appears.
-	if err := e.Resolver.Set.SetTalk("talk-1", manifest.TalkSpec{DisplayTitle: "Kortere"}); err != nil {
-		t.Fatal(err)
+	if o := docs["TalkOverride/talk-1"]; !strings.Contains(o, "displayTitle: Kortere tittel") ||
+		!strings.Contains(o, "editedAt: ") || !strings.Contains(o, "posted: \"2026-10-16\"") {
+		t.Errorf("TalkOverride:\n%s", o)
 	}
-	res, err = e.write(root, testTalk())
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ = os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
-	if !strings.Contains(string(body), "kind: TalkOverride") ||
-		!strings.Contains(string(body), "displayTitle: Kortere") {
-		t.Errorf("promo.yaml missing the talk override:\n%s", body)
+	if o := docs["Output/talk-1"]; !strings.Contains(o, "title: Kortere tittel") || !strings.Contains(o, "posted: \"2026-10-16\"") {
+		t.Errorf("Output should show the displayed title and the posted date:\n%s", o)
 	}
 }
+
+func TestWriteAllReportsProgress(t *testing.T) {
+	e, root := newExporter(t, []string{FormatSVG}, false)
+	talks := []promo.Talk{e.Resolver.Talk(testTalk())}
+	var calls int
+	res, err := e.WriteAll(root, talks, func(done, total int, label string) {
+		calls++
+		if done != 1 || total != 1 || label != res0(e, talks) {
+			t.Errorf("progress(%d, %d, %q)", done, total, label)
+		}
+	})
+	if err != nil || len(res) != 1 || calls != 1 {
+		t.Errorf("WriteAll = %v, %v; %d progress calls", res, err, calls)
+	}
+}
+
+func res0(e *Exporter, talks []promo.Talk) string { return talks[0].FileStem() }
 
 func TestWarningsAreReported(t *testing.T) {
 	e, root := newExporter(t, []string{FormatSVG}, false)
@@ -339,126 +444,13 @@ func TestSpeakerWithoutSlugGetsAnOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
-
-	var found bool
-	for _, doc := range strings.Split(string(body), "\n---\n") {
-		if strings.Contains(doc, "kind: SpeakerOverride") && strings.Contains(doc, "name: "+slugless.Key()) {
-			found = true
-			if !strings.Contains(doc, "employer: Skyvakt") {
-				t.Errorf("the slugless speaker's override is not pre-filled:\n%s", doc)
-			}
-		}
+	_, docs := docsOf(t, readBundle(t, root, res))
+	if _, ok := docs["SpeakerOverride/"+slugless.Key()]; !ok {
+		t.Errorf("no override for the slugless speaker (key %q)", slugless.Key())
 	}
-	if !found {
-		t.Errorf("no override for the slugless speaker (key %q):\n%s", slugless.Key(), body)
-	}
-	if !strings.Contains(string(body), "name: dario-haaland") {
-		t.Errorf("lost the speaker that does have a slug:\n%s", body)
-	}
-	// The copy still names both.
 	copyText, _ := os.ReadFile(filepath.Join(root, res.Dir, "linkedin.txt"))
 	if !strings.Contains(string(copyText), "Solveig Ulriksen") {
 		t.Errorf("linkedin.txt lost a speaker: %q", copyText)
-	}
-}
-
-// The record is the "all information" half of promo.yaml: everything the tool
-// knew about the talk when it produced the folder.
-func TestRecordCarriesTheWholeTalk(t *testing.T) {
-	e, root := newExporter(t, []string{FormatSVG}, false)
-	res, err := e.write(root, testTalk())
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(body)
-
-	for _, want := range []string{
-		"kind: " + manifest.KindTalkInfo,
-		"title: Cloud Native Days Norway 2026",
-		"programUrl: https://2026.cloudnativedays.no/program",
-		"id: talk-1",
-		"day: 1",
-		"startTime: \"09:00\"",
-		"track: 'Track 1: Full Day Workshops'",
-		"format: workshop_120",
-		"formatLabel: 2 h workshop",
-		"level: intermediate",
-		"abstract: Plattformer bygges",
-		"name: Dario Haaland",
-		// The free text the employer was guessed from, so a wrong guess can be
-		// judged without opening the website.
-		"submittedTitle: Bysten Labs",
-		"key: dario-haaland",
-		"employerGuessed: true",
-		// False here, which is exactly the case an image override fixes.
-		"hasPhoto: false",
-		"profileUrl: https://2026.cloudnativedays.no/speaker/dario-haaland",
-		"cards:",
-		"- portrait.svg",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("record missing %q:\n%s", want, text)
-		}
-	}
-
-	// An export must be reproducible, so nothing in the file may vary per run.
-	second, err := e.write(root, testTalk())
-	if err != nil {
-		t.Fatal(err)
-	}
-	again, _ := os.ReadFile(filepath.Join(root, second.Dir, "promo.yaml"))
-	if string(again) != text {
-		t.Error("promo.yaml is not byte-stable across runs")
-	}
-}
-
-// The record shows both titles when a display override is in play, so the
-// folder says what was submitted as well as what the card shows.
-func TestRecordKeepsTheSubmittedTitle(t *testing.T) {
-	e, root := newExporter(t, []string{FormatSVG}, false)
-	if err := e.Resolver.Set.SetTalk("talk-1", manifest.TalkSpec{DisplayTitle: "Kortere tittel"}); err != nil {
-		t.Fatal(err)
-	}
-	res, err := e.write(root, testTalk())
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
-
-	if !strings.Contains(string(body), "title: Kortere tittel") {
-		t.Errorf("record should show the displayed title:\n%s", body)
-	}
-	if !strings.Contains(string(body), "submittedTitle: Kan skyen kjøre") {
-		t.Errorf("record should keep the submitted title:\n%s", body)
-	}
-}
-
-// The whole file must still load as a manifest, TalkInfo included, so an
-// exported bundle can be fed straight back.
-func TestExportedManifestLoadsWithTheRecordPresent(t *testing.T) {
-	e, root := newExporter(t, []string{FormatSVG}, false)
-	res, err := e.write(root, testTalk())
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(root, res.Dir, "promo.yaml")
-
-	reloaded, err := manifest.Load(path)
-	if err != nil {
-		t.Fatalf("exported bundle does not load: %v", err)
-	}
-	// TalkInfo is informational and must not become an override.
-	if _, ok := reloaded.Talk("talk-1"); ok {
-		t.Error("TalkInfo was mistaken for a TalkOverride")
-	}
-	spec, ok := reloaded.Speaker("dario-haaland")
-	if !ok || spec.Employer != "Bysten Labs" {
-		t.Errorf("speaker override = %+v, ok=%v", spec, ok)
 	}
 }
 
@@ -497,10 +489,10 @@ func TestImageOverrideReachesTheCardAndTheRecord(t *testing.T) {
 
 	body, _ := os.ReadFile(filepath.Join(root, res.Dir, "promo.yaml"))
 	if !strings.Contains(string(body), "hasPhoto: true") {
-		t.Errorf("record should report a photo:\n%s", body)
+		t.Errorf("Output should report a photo:\n%s", body)
 	}
 	if !strings.Contains(string(body), "image: dario.png") {
-		t.Errorf("record should name the override's image:\n%s", body)
+		t.Errorf("the override should name its image:\n%s", body)
 	}
 }
 

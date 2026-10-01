@@ -14,10 +14,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/manifest"
+	"github.com/vehagn/speaker-promos/internal/source"
 )
 
 // Speaker is one presenter as the promo shows them.
@@ -44,6 +46,15 @@ type Speaker struct {
 	Image string
 	// Links are the scraped handles with any correction merged over them.
 	Links cnd.Links
+
+	// UpdatedAt is when the website's data for this speaker last changed, and
+	// EditedAt when their correction did. Either is zero when unknown.
+	UpdatedAt time.Time
+	EditedAt  time.Time
+	// Stale is set when the website changed after the correction was made: the
+	// speaker retitled themselves, say, after you fixed their role line. The
+	// correction may now be wrong, or no longer needed.
+	Stale bool
 }
 
 // Values are the speaker's fields as the manifest names them: the values the
@@ -76,6 +87,49 @@ type Talk struct {
 	Detected lang.Language
 	// Hidden excludes the talk from bulk operations.
 	Hidden bool
+	// Posted is the date the promo went out, or "" while it has not.
+	Posted string
+
+	// UpdatedAt, EditedAt and Stale say for the talk itself what they say on
+	// a Speaker.
+	UpdatedAt time.Time
+	EditedAt  time.Time
+	Stale     bool
+}
+
+// LastChanged is the latest of the talk's and its speakers' website and
+// correction times: when anything that shapes this promo last changed.
+func (t Talk) LastChanged() time.Time {
+	latest := later(t.UpdatedAt, t.EditedAt)
+	for _, sp := range t.Speakers {
+		latest = later(latest, later(sp.UpdatedAt, sp.EditedAt))
+	}
+	return latest
+}
+
+// StaleSpeakers are the keys of the speakers whose correction predates a
+// website change.
+func (t Talk) StaleSpeakers() []string {
+	var out []string
+	for _, sp := range t.Speakers {
+		if sp.Stale {
+			out = append(out, sp.Key)
+		}
+	}
+	return out
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
+// stale reports whether a correction edited at edited predates a website
+// change at updated. Either being unknown means no.
+func stale(edited, updated time.Time) bool {
+	return !edited.IsZero() && !updated.IsZero() && updated.After(edited)
 }
 
 // SpeakerNames renders the speakers' names as prose in the talk's language:
@@ -99,6 +153,9 @@ type Resolver struct {
 	// Set holds the corrections. Nil resolves a talk as submitted, which is
 	// what the renderer's and the copy's own tests want.
 	Set *manifest.Set
+	// Source is the website snapshot, which supplies when things changed. Nil
+	// leaves those times unknown.
+	Source *source.Snapshot
 	// Language is the run's default, or lang.Auto to detect per talk. A per-talk
 	// override in the manifest beats it.
 	Language lang.Language
@@ -111,10 +168,16 @@ type Resolver struct {
 // Talk resolves one talk against the manifest as it stands now.
 func (r *Resolver) Talk(src cnd.Talk) Talk {
 	var spec manifest.TalkSpec
+	var overridden bool
+	t := Talk{Talk: src, SubmittedTitle: src.Title, UpdatedAt: r.Source.TalkUpdatedAt(src.ID)}
 	if r.Set != nil {
-		spec, _ = r.Set.Talk(src.ID)
+		spec, overridden = r.Set.Talk(src.ID)
+		t.EditedAt = r.Set.EditedAt(manifest.KindTalkOverride, src.ID)
 	}
-	t := Talk{Talk: src, SubmittedTitle: src.Title, Hidden: spec.Hidden}
+	t.Hidden, t.Posted = spec.Hidden, spec.Posted
+	// Only a correction to what the website says can go stale; hiding a talk
+	// or recording that it was posted is not about its content.
+	t.Stale = overridden && (spec.DisplayTitle != "" || spec.Language != "") && stale(t.EditedAt, t.UpdatedAt)
 	if title := strings.TrimSpace(spec.DisplayTitle); title != "" {
 		t.Title = title
 	}
@@ -207,6 +270,7 @@ func (r *Resolver) speaker(src cnd.Speaker) Speaker {
 		Role:   ParseRole(src.Title),
 		Image:  src.Image,
 	}
+	sp.UpdatedAt = r.Source.SpeakerUpdatedAt(sp.Key)
 	var scraped cnd.Links
 	if r.Links != nil {
 		scraped = r.Links(src)
@@ -221,6 +285,8 @@ func (r *Resolver) speaker(src cnd.Speaker) Speaker {
 		sp.Links = scraped
 		return sp
 	}
+	sp.EditedAt = r.Set.EditedAt(manifest.KindSpeakerOverride, sp.Key)
+	sp.Stale = stale(sp.EditedAt, sp.UpdatedAt)
 	if name := strings.TrimSpace(spec.Name); name != "" {
 		sp.Name = name
 	}
@@ -274,55 +340,5 @@ func Baseline(sp cnd.Speaker, links cnd.Links) manifest.SpeakerSpec {
 		Title:    sp.Title,
 		Image:    sp.Image,
 		Links:    links,
-	}
-}
-
-// BundleSpec is the speaker override an exported bundle carries: the current
-// correction, pre-filled with the values in use so that fixing one is editing a
-// line rather than knowing the field exists.
-//
-// It pre-fills exactly what ImportBaseline dismisses — the name and the
-// employer and job — so an unedited bundle imports as nothing. Title is
-// deliberately left out: it is an escape hatch, and pre-filling it would freeze
-// the composed job-and-employer line and stop those two from doing anything.
-func BundleSpec(current manifest.SpeakerSpec, sp Speaker) manifest.SpeakerSpec {
-	if current.Name == "" {
-		current.Name = sp.Source.Name
-	}
-	if current.Employer == "" && current.Job == "" {
-		current.Employer, current.Job = sp.Role.Employer, sp.Role.Job
-	}
-	return current
-}
-
-// ImportBaseline builds the import options that make a merge mean "take the
-// edits": the program supplies what the tool would say with no overrides at
-// all, so a pre-filled guess coming back unchanged is not mistaken for a
-// correction.
-//
-// The speaker baseline is deliberately narrower than Baseline: a bundle
-// pre-fills the name and the guessed employer and job, but never the role line,
-// the photo or the handles, so a value in one of those is always something
-// someone typed and is taken as an edit.
-func ImportBaseline(program *cnd.Program) manifest.ImportOptions {
-	speakers := map[string]manifest.SpeakerSpec{}
-	for _, sp := range program.Speakers() {
-		spec := Baseline(sp, cnd.Links{})
-		spec.Title, spec.Image = "", ""
-		speakers[sp.Key()] = spec
-	}
-	titles := map[string]string{}
-	for _, t := range program.Talks {
-		titles[t.ID] = t.Title
-	}
-	return manifest.ImportOptions{
-		SpeakerBaseline: func(key string) (manifest.SpeakerSpec, bool) {
-			spec, ok := speakers[key]
-			return spec, ok
-		},
-		TalkBaseline: func(id string) (string, bool) {
-			title, ok := titles[id]
-			return title, ok
-		},
 	}
 }

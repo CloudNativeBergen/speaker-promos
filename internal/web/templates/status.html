@@ -1,12 +1,12 @@
 {{define "status.html"}}
 {{- /*
-     The status area under the header. It is returned out-of-band so that an
-     import can replace every row and still report what it changed, and it
-     goes through a template so an imported value is escaped on its way onto
-     the page.
+     The status area under the header. It is always returned out-of-band, so
+     a job's result can replace the progress bar, every row, or one row, and
+     still report what it did; and it goes through a template so an imported
+     value is escaped on its way onto the page.
 */}}
 <div id="status" class="status" hx-swap-oob="true">
-  <span{{if .Muted}} class="none"{{end}}>{{.Summary}}</span>
+  <span class="{{if .Muted}}none{{end}}{{if .Error}} error{{end}}">{{.Summary}}</span>
   {{- with .Changes}}
   <ul>{{range .}}<li>{{.}}</li>{{end}}</ul>
   {{- end}}

@@ -27,6 +27,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
+	"github.com/vehagn/speaker-promos/internal/source"
 	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
@@ -35,8 +36,11 @@ var files embed.FS
 
 // Options configures a Server.
 type Options struct {
-	Program  *cnd.Program
-	Set      *manifest.Set
+	Program *cnd.Program
+	Set     *manifest.Set
+	// Source is the website snapshot: when things changed, and the handles
+	// last scraped. Nil leaves those unknown.
+	Source   *source.Snapshot
 	Theme    *theme.Theme
 	Images   *cache.Cache
 	Loader   *cnd.Loader
@@ -83,6 +87,9 @@ type Server struct {
 	// make editing unusable even against the on-disk cache.
 	links map[string]cnd.Links
 
+	// jobs is the running export or import, if any.
+	jobs jobs
+
 	// photoMu guards photos, and is separate from mu for the same reason
 	// linksMu is: filling this cache does network I/O.
 	photoMu sync.Mutex
@@ -104,7 +111,9 @@ func New(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	tmpl, err := template.New("").ParseFS(files, "templates/*.html")
+	tmpl, err := template.New("").Funcs(template.FuncMap{
+		"ago": ago, "day": day,
+	}).ParseFS(files, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parsing templates: %w", err)
 	}
@@ -122,11 +131,16 @@ func New(opts Options) (*Server, error) {
 		links:        map[string]cnd.Links{},
 		photos:       map[string]bool{},
 	}
+	fetch := s.fetchLinks
+	if opts.NoLinks {
+		fetch = nil
+	}
 	s.resolver = &promo.Resolver{
 		Program:  opts.Program,
 		Set:      opts.Set,
+		Source:   opts.Source,
 		Language: opts.Language,
-		Links:    s.speakerLinks,
+		Links:    opts.Source.LinksFunc(fetch),
 	}
 	return s, nil
 }
@@ -144,6 +158,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /download/{id}", s.handleDownload)
 	mux.HandleFunc("POST /export", s.handleExport)
 	mux.HandleFunc("POST /import", s.handleImport)
+	mux.HandleFunc("POST /talk/{id}/export", s.handleTalkExport)
+	mux.HandleFunc("POST /talk/{id}/import", s.handleTalkImport)
+	mux.HandleFunc("GET /jobs/{id}", s.handleJob)
 	mux.Handle("GET /static/", http.FileServerFS(files))
 	return mux
 }
@@ -160,6 +177,12 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Rev        int64
 		Manifest   string
 		OutDir     string
+		// FetchedAt is when the program page was read from the website, and
+		// ChangedAt when the snapshot last saw it change.
+		FetchedAt time.Time
+		ChangedAt time.Time
+		// OOB is false: the index's rows are the page, not a swap.
+		OOB bool
 	}{
 		Conference: s.opts.Program.Conference,
 		Talks:      views,
@@ -168,6 +191,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Rev:        rev,
 		Manifest:   s.opts.Set.Path(),
 		OutDir:     s.opts.OutDir,
+		FetchedAt:  s.opts.Program.FetchedAt,
+		ChangedAt:  s.opts.Source.UpdatedAt(),
 	}
 	s.renderTemplate(w, "index.html", data)
 }
@@ -197,16 +222,20 @@ func (s *Server) views(size string) ([]talkView, int64) {
 // err is reported after the view is built rather than instead of it, so a
 // failed edit still leaves the row showing what was actually stored.
 func (s *Server) renderTalk(w http.ResponseWriter, r *http.Request, src cnd.Talk, err error) {
-	p := s.probe([]promo.Talk{s.resolver.Talk(src)})
-	s.mu.Lock()
-	view := s.buildViewLocked(s.resolver.Talk(src), s.sizeParam(r), p)
-	s.mu.Unlock()
-
+	view := s.view(src, s.sizeParam(r))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	s.renderTemplate(w, "talk.html", view)
+}
+
+// view builds one talk's view: probes outside the page lock, the view under it.
+func (s *Server) view(src cnd.Talk, size string) talkView {
+	p := s.probe([]promo.Talk{s.resolver.Talk(src)})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buildViewLocked(s.resolver.Talk(src), size, p)
 }
 
 // saveAndRender applies one edit and swaps the row it changed back in.
@@ -244,6 +273,16 @@ func (s *Server) handleTalkUpdate(w http.ResponseWriter, r *http.Request) {
 		DisplayTitle: strings.TrimSpace(r.FormValue("displayTitle")),
 		Hidden:       r.FormValue("hidden") != "",
 		Language:     strings.TrimSpace(r.FormValue("language")),
+		Posted:       strings.TrimSpace(r.FormValue("posted")),
+	}
+	// The "today" button beside the date, which is the usual case: you have
+	// just posted it.
+	if r.FormValue("postedToday") != "" {
+		spec.Posted = time.Now().Format(time.DateOnly)
+	}
+	if _, err := manifest.ParsePosted(spec.Posted); err != nil {
+		s.fail(w, err)
+		return
 	}
 	// The title input is pre-filled with the title in use, so submitting the
 	// submitted one is not a shortening.
@@ -296,7 +335,7 @@ func (s *Server) handleSpeakerUpdate(w http.ResponseWriter, r *http.Request) {
 	// what was found is a correction; storing the rest would mark every guess
 	// as confirmed the first time any field was touched, and put a copy of the
 	// whole speaker in the manifest.
-	base := promo.Baseline(speaker, s.speakerLinks(speaker))
+	base := promo.Baseline(speaker, s.resolver.Links(speaker))
 	existing, _ := s.opts.Set.Speaker(key)
 
 	// The role line is a composed field, which makes it the one field a plain
@@ -410,28 +449,25 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	fmt.Fprintf(w, `<p class="error">%s</p>`, template.HTMLEscapeString(err.Error()))
 }
 
-// speakerLinks returns a speaker's scraped handles, fetching once per process.
-// A speaker page is addressed by slug, so one without a slug has none.
-func (s *Server) speakerLinks(sp cnd.Speaker) cnd.Links {
-	if s.opts.NoLinks || sp.Slug == "" {
-		return cnd.Links{}
-	}
+// fetchLinks scrapes a speaker's handles, once per process. It is the fetch
+// behind the snapshot's links: a result here is recorded in source.yaml, and a
+// failure falls back to what the snapshot had.
+func (s *Server) fetchLinks(sp cnd.Speaker) (cnd.Links, error) {
 	key := sp.Key()
 	s.linksMu.Lock()
 	l, ok := s.links[key]
 	s.linksMu.Unlock()
 	if ok {
-		return l
+		return l, nil
 	}
-
-	// A failure here is not worth surfacing: handles only suggest mentions, and
-	// the edit form lets them be filled in by hand.
-	l, _ = s.opts.Loader.SpeakerLinks(sp)
-
+	l, err := s.opts.Loader.SpeakerLinks(sp)
+	if err != nil {
+		return cnd.Links{}, err
+	}
 	s.linksMu.Lock()
 	s.links[key] = l
 	s.linksMu.Unlock()
-	return l
+	return l, nil
 }
 
 // Warm pre-fetches every speaker's social links and photo.
@@ -534,6 +570,19 @@ func (s *Server) buildViewLocked(t promo.Talk, size string, p probes) talkView {
 		Size:    size,
 		CardURL: fmt.Sprintf("/card/%s?size=%s&rev=%d", t.ID, size, s.rev),
 	}
+	view.WebsiteAt, view.EditedAt = t.UpdatedAt, t.EditedAt
+	for _, sp := range t.Speakers {
+		view.WebsiteAt = latest(view.WebsiteAt, sp.UpdatedAt)
+		view.EditedAt = latest(view.EditedAt, sp.EditedAt)
+		if sp.Stale {
+			view.Warnings = append(view.Warnings, fmt.Sprintf(
+				"the website changed %s's details after they were corrected — check the correction still holds", sp.Name))
+		}
+	}
+	if t.Stale {
+		view.Warnings = append(view.Warnings,
+			"the website changed this talk after its display title or language was set — check it still holds")
+	}
 	view.Override, _ = s.opts.Set.Talk(t.ID)
 	for _, sp := range t.Speakers {
 		view.Speakers = append(view.Speakers, speakerView{Speaker: sp, HasPhoto: p.photos[sp.Image]})
@@ -562,6 +611,13 @@ func (s *Server) buildViewLocked(t promo.Talk, size string, p probes) talkView {
 		}
 	}
 	return view
+}
+
+func latest(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // exporter builds the bundle writer for the given card sizes.

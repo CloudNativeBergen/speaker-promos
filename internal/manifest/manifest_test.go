@@ -408,3 +408,51 @@ func TestSpeakerSpecRejectsUnknownFields(t *testing.T) {
 		}
 	}
 }
+
+// A v1alpha1 manifest still loads, and is written back as v1alpha2.
+func TestV1Alpha1LoadsAndMigrates(t *testing.T) {
+	path := tempPath(t)
+	if err := os.WriteFile(path, []byte(sample), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set, err := Load(path)
+	if err != nil {
+		t.Fatalf("a v1alpha1 manifest did not load: %v", err)
+	}
+	if err := set.Save(); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	if !strings.Contains(string(body), "apiVersion: "+APIVersion) || strings.Contains(string(body), apiVersionV1Alpha1) {
+		t.Errorf("not migrated:\n%s", body)
+	}
+}
+
+func TestPostedIsValidated(t *testing.T) {
+	path := tempPath(t)
+	doc := func(posted string) string {
+		return "apiVersion: " + APIVersion + "\nkind: TalkOverride\nmetadata:\n  name: t\nspec:\n  posted: " + posted + "\n"
+	}
+	os.WriteFile(path, []byte(doc(`"2026-10-16"`)), 0o644)
+	set, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec, _ := set.Talk("t"); spec.Posted != "2026-10-16" {
+		t.Errorf("posted = %q", spec.Posted)
+	}
+	os.WriteFile(path, []byte(doc("last tuesday")), 0o644)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "line 6") {
+		t.Errorf("err = %v, want a line-numbered rejection", err)
+	}
+}
+
+// metadata is field-checked like spec, so a typo there is an error too.
+func TestMetadataRejectsUnknownFields(t *testing.T) {
+	path := tempPath(t)
+	body := "apiVersion: " + APIVersion + "\nkind: TalkOverride\nmetadata:\n  name: t\n  editedOn: x\nspec: {}\n"
+	os.WriteFile(path, []byte(body), 0o644)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "editedOn") {
+		t.Errorf("err = %v", err)
+	}
+}

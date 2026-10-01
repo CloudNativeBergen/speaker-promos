@@ -139,6 +139,22 @@ func (c *Cache) write(url string, body []byte) {
 	os.Rename(tmp.Name(), p)
 }
 
+// FetchedAt is when url was last fetched into the cache, or the zero time when
+// it is not cached (or caching is off).
+//
+// This is how a run knows how old its website data is without writing the time
+// anywhere that would churn: the cache entry's own mtime is the fetch time.
+func (c *Cache) FetchedAt(url string) time.Time {
+	if c.Disabled {
+		return time.Time{}
+	}
+	fi, err := os.Stat(c.path(url))
+	if err != nil {
+		return time.Time{}
+	}
+	return fi.ModTime()
+}
+
 // Clear removes every cached entry.
 func (c *Cache) Clear() error {
 	return os.RemoveAll(c.Dir)

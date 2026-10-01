@@ -2,13 +2,10 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/post"
-	"github.com/vehagn/speaker-promos/internal/promo"
 )
 
 func cmdPost(args []string) error {
@@ -19,7 +16,7 @@ func cmdPost(args []string) error {
 	platform := fs.String("platform", "both", "linkedin, bluesky, or both")
 	var manifestPath manifestFlag
 	manifestPath.register(fs)
-	noLinks := fs.Bool("no-links", false, "skip fetching speaker pages for social handles")
+	noLinks := fs.Bool("no-links", false, "use the handles last recorded in the snapshot rather than fetching speaker pages")
 	language := fs.String("language", "auto", "copy language: auto, en or no")
 	if err := parseFlags(fs, args); err != nil {
 		return err
@@ -35,19 +32,11 @@ func cmdPost(args []string) error {
 	}
 
 	loader := common.loader()
-	program, err := loader.Load()
+	program, snap, err := common.load(loader)
 	if err != nil {
 		return err
 	}
-	resolver := &promo.Resolver{
-		Program:  program,
-		Set:      set,
-		Language: copyLang,
-		Links: linkFetcher(loader, *noLinks, func(sp cnd.Speaker, err error) {
-			fmt.Fprintf(os.Stderr, "note: could not read %s's profile page: %v\n", sp.Name, err)
-		}),
-	}
-	talks, err := selectTalks(resolver, *all, fs.Args())
+	talks, err := selectTalks(resolver(program, set, snap, copyLang, loader, *noLinks), *all, fs.Args())
 	if err != nil {
 		return err
 	}

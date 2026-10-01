@@ -5,27 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
-
-// baseline is what the tool would say about this speaker with no override: the
-// upstream name, and the employer guessed out of the free-text profile title.
-func testBaseline() ImportOptions {
-	base := map[string]SpeakerSpec{
-		"dario-haaland": {Name: "Dario Haaland", Employer: "Bysten Labs"},
-		"espen-tveitan": {Name: "Espen Tveitan", Employer: "Vestbit", Job: "Senior Platform Engineer"},
-	}
-	titles := map[string]string{"talk-1": "Kan skyen kjøre på en brødrister?"}
-	return ImportOptions{
-		SpeakerBaseline: func(key string) (SpeakerSpec, bool) {
-			s, ok := base[key]
-			return s, ok
-		},
-		TalkBaseline: func(id string) (string, bool) {
-			t, ok := titles[id]
-			return t, ok
-		},
-	}
-}
 
 func loadFrom(t *testing.T, body string) *Set {
 	t.Helper()
@@ -40,150 +21,223 @@ func loadFrom(t *testing.T, body string) *Set {
 	return set
 }
 
-func speakerDoc(slug, spec string) string {
+// speakerDoc is a hand-written override: no revision.
+func speakerDoc(key, spec string) string {
 	return "apiVersion: " + APIVersion + "\nkind: SpeakerOverride\nmetadata:\n  name: " +
-		slug + "\nspec:\n" + spec
+		key + "\nspec:\n" + spec
 }
 
-// The property that makes import safe: an exported manifest pre-fills the
-// guessed employer and the upstream name, so importing it unedited must change
-// nothing. Otherwise every guess silently becomes a confirmed correction and
-// the warnings that exist to be read stop appearing.
-func TestImportIgnoresUneditedPrefills(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	src := loadFrom(t, speakerDoc("dario-haaland", "  name: Dario Haaland\n  employer: Bysten Labs\n"))
+// fixedClock stamps edits at a known time, advancing a minute per call so
+// successive edits are distinguishable.
+func fixedClock() func() time.Time {
+	t := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	return func() time.Time {
+		t = t.Add(time.Minute)
+		return t
+	}
+}
 
-	changes, err := target.ImportFrom(src, testBaseline())
+func newTarget(t *testing.T) *Set {
+	t.Helper()
+	set := New(filepath.Join(t.TempDir(), "promos.yaml"))
+	set.Now = fixedClock()
+	return set
+}
+
+// exportBundle renders what `promo export` writes for a talk's overrides, so
+// the tests merge against real revisions.
+func exportBundle(t *testing.T, set *Set, talkID string, keys ...string) string {
+	t.Helper()
+	data, err := Encode("", append([]Document{Doc(KindSource, Metadata{Name: talkID}, map[string]string{})},
+		set.BundleOverrides(talkID, keys)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// The property that makes import safe: a bundle imported unedited changes
+// nothing, whatever the project had.
+func TestImportOfAnUneditedBundleIsANoOp(t *testing.T) {
+	target := newTarget(t)
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Bysten Labs"}); err != nil {
+		t.Fatal(err)
+	}
+	bundle := exportBundle(t, target, "talk-1", "dario-haaland", "nobody")
+
+	changes, err := target.ImportFrom(loadFrom(t, bundle), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(changes) != 0 {
-		t.Errorf("imported unedited pre-fills: %v", changes)
+		t.Errorf("an unedited bundle imported %v", changes)
 	}
-	if s, _ := target.Len(); s != 0 {
-		t.Errorf("target gained %d speaker overrides", s)
+	if s, tk := target.Len(); s != 1 || tk != 0 {
+		t.Errorf("Len = %d, %d; empty bundle objects must not be stored", s, tk)
 	}
 }
 
-func TestImportTakesOnlyTheEdits(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	src := loadFrom(t, speakerDoc("dario-haaland",
-		"  name: Dárió Håaland\n  employer: Bysten Labs\n  image: photos/dario.jpg\n"))
+// The bundle carries the whole object, so a deleted field is a cleared one and
+// `hidden: false` turns hiding off — neither of which the old import could do.
+func TestImportTakesEditsIncludingClears(t *testing.T) {
+	target := newTarget(t)
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Name: "Dario", Employer: "Old Corp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.SetTalk("talk-1", TalkSpec{Hidden: true}); err != nil {
+		t.Fatal(err)
+	}
+	bundle := exportBundle(t, target, "talk-1", "dario-haaland")
+	bundle = strings.Replace(bundle, "  name: Dario\n", "", 1)
+	bundle = strings.Replace(bundle, "employer: Old Corp", "employer: New Corp", 1)
+	bundle = strings.Replace(bundle, "hidden: true", "hidden: false", 1)
 
-	changes, err := target.ImportFrom(src, testBaseline())
+	changes, err := target.ImportFrom(loadFrom(t, bundle), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	SortChanges(changes)
-	if len(changes) != 2 {
-		t.Fatalf("changes = %v, want the two edited fields", changes)
+	var got []string
+	for _, c := range changes {
+		got = append(got, c.String())
 	}
-	// employer came back equal to the guess, so it is not among them.
-	got := []string{changes[0].Field, changes[1].Field}
-	if got[0] != "image" || got[1] != "name" {
-		t.Errorf("fields = %v, want image and name", got)
+	want := []string{
+		`SpeakerOverride/dario-haaland employer: "Old Corp" → "New Corp"`,
+		`SpeakerOverride/dario-haaland name: "Dario" → (cleared)`,
+		`TalkOverride/talk-1 hidden: "true" → (cleared)`,
 	}
-
-	spec, ok := target.Speaker("dario-haaland")
-	if !ok {
-		t.Fatal("no override written")
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("changes =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if spec.Name != "Dárió Håaland" || spec.Image != "photos/dario.jpg" {
-		t.Errorf("spec = %+v", spec)
+	if spec, _ := target.Speaker("dario-haaland"); spec != (SpeakerSpec{Employer: "New Corp"}) {
+		t.Errorf("speaker = %+v", spec)
 	}
-	// The unedited employer must not have been written either.
-	if spec.Employer != "" {
-		t.Errorf("employer = %q, want it left unset", spec.Employer)
+	if _, ok := target.Talk("talk-1"); ok {
+		t.Error("a talk override cleared to nothing should be deleted")
 	}
 }
 
-// Confirming is how you say "that guess was right" and stop being asked.
-func TestImportConfirmGuesses(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	src := loadFrom(t, speakerDoc("dario-haaland", "  name: Dario Haaland\n  employer: Bysten Labs\n"))
+// Edited in the project after export AND in the bundle: the project's version
+// is kept and the bundle's reported, unless forced.
+func TestImportReportsConflicts(t *testing.T) {
+	target := newTarget(t)
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Exported Corp"}); err != nil {
+		t.Fatal(err)
+	}
+	bundle := strings.Replace(exportBundle(t, target, "talk-1", "dario-haaland"),
+		"employer: Exported Corp", "employer: Bundle Corp", 1)
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Project Corp"}); err != nil {
+		t.Fatal(err)
+	}
 
-	opts := testBaseline()
-	opts.ConfirmGuesses = true
-	changes, err := target.ImportFrom(src, opts)
+	changes, err := target.ImportFrom(loadFrom(t, bundle), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 2 {
-		t.Fatalf("changes = %v, want name and employer", changes)
+	if len(changes) != 1 || !changes[0].Conflict {
+		t.Fatalf("changes = %v, want one conflict", changes)
 	}
-	spec, _ := target.Speaker("dario-haaland")
-	if spec.Employer != "Bysten Labs" {
+	if !strings.HasPrefix(changes[0].String(), "conflict") {
+		t.Errorf("String() = %q", changes[0].String())
+	}
+	if spec, _ := target.Speaker("dario-haaland"); spec.Employer != "Project Corp" {
+		t.Errorf("employer = %q, want the project's kept", spec.Employer)
+	}
+
+	changes, err = target.ImportFrom(loadFrom(t, bundle), ImportOptions{Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Conflict {
+		t.Fatalf("forced changes = %v", changes)
+	}
+	if spec, _ := target.Speaker("dario-haaland"); spec.Employer != "Bundle Corp" {
+		t.Errorf("employer = %q, want the bundle's after --force", spec.Employer)
+	}
+}
+
+// Edited in the project after export, but untouched in the bundle: an old
+// bundle must not revert newer work, and must not cry conflict either.
+func TestImportOfAStaleUneditedBundleKeepsNewerEdits(t *testing.T) {
+	target := newTarget(t)
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Exported Corp"}); err != nil {
+		t.Fatal(err)
+	}
+	bundle := exportBundle(t, target, "talk-1", "dario-haaland")
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Newer Corp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	changes, err := target.ImportFrom(loadFrom(t, bundle), ImportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 0 {
+		t.Errorf("changes = %v, want none", changes)
+	}
+	if spec, _ := target.Speaker("dario-haaland"); spec.Employer != "Newer Corp" {
 		t.Errorf("employer = %q", spec.Employer)
 	}
 }
 
-func TestImportIsIdempotent(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	src := loadFrom(t, speakerDoc("dario-haaland", "  name: Dárió Håaland\n"))
+func TestImportStampsEditedAtOnlyOnChange(t *testing.T) {
+	target := newTarget(t)
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Corp"}); err != nil {
+		t.Fatal(err)
+	}
+	first := target.EditedAt(KindSpeakerOverride, "dario-haaland")
+	if first.IsZero() {
+		t.Fatal("an edit was not stamped")
+	}
+	// The same value again is not an edit.
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Corp"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := target.EditedAt(KindSpeakerOverride, "dario-haaland"); !got.Equal(first) {
+		t.Errorf("a no-op save moved editedAt from %v to %v", first, got)
+	}
 
-	first, err := target.ImportFrom(src, testBaseline())
-	if err != nil {
+	bundle := strings.Replace(exportBundle(t, target, "talk-1", "dario-haaland"),
+		"employer: Corp", "employer: Other", 1)
+	if _, err := target.ImportFrom(loadFrom(t, bundle), ImportOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(first) != 1 {
-		t.Fatalf("first import = %v", first)
-	}
-	second, err := target.ImportFrom(src, testBaseline())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(second) != 0 {
-		t.Errorf("second import = %v, want no changes", second)
+	if got := target.EditedAt(KindSpeakerOverride, "dario-haaland"); !got.After(first) {
+		t.Errorf("an import that changed the override left editedAt at %v", got)
 	}
 }
 
-// A conflict is reported with both values, so it is visible rather than silent.
-func TestImportReportsConflicts(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Old Corp"}); err != nil {
+// A hand-written object has no revision to merge against, so only the fields
+// it sets are taken — it cannot clear anything.
+func TestImportOfAHandWrittenDocMergesFields(t *testing.T) {
+	target := newTarget(t)
+	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{Employer: "Kept Corp", Image: "kept.jpg"}); err != nil {
 		t.Fatal(err)
 	}
-	src := loadFrom(t, speakerDoc("dario-haaland", "  employer: New Corp\n"))
+	src := loadFrom(t, speakerDoc("dario-haaland", "  job: New Job\n")+
+		"---\n"+speakerDoc("someone-else", "  name: Someone Else\n"))
 
-	changes, err := target.ImportFrom(src, testBaseline())
+	changes, err := target.ImportFrom(src, ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 1 {
-		t.Fatalf("changes = %v", changes)
-	}
-	c := changes[0]
-	if c.From != "Old Corp" || c.To != "New Corp" {
-		t.Errorf("change = %+v", c)
-	}
-	if !strings.Contains(c.String(), "→") {
-		t.Errorf("String() = %q, want it to show both values", c.String())
-	}
-	if spec, _ := target.Speaker("dario-haaland"); spec.Employer != "New Corp" {
-		t.Errorf("employer = %q, want the import to win", spec.Employer)
-	}
-}
-
-// A field the bundle does not mention must not clear one the project manifest
-// has: half the bundles would otherwise wipe whatever they happened to omit.
-func TestImportDoesNotClearOmittedFields(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	if err := target.SetSpeaker("dario-haaland", SpeakerSpec{
-		Employer: "Kept Corp", Image: "kept.jpg",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	src := loadFrom(t, speakerDoc("dario-haaland", "  job: New Job\n"))
-
-	if _, err := target.ImportFrom(src, testBaseline()); err != nil {
-		t.Fatal(err)
+	if len(changes) != 2 {
+		t.Errorf("changes = %v, want job and the new speaker's name", changes)
 	}
 	spec, _ := target.Speaker("dario-haaland")
-	if spec.Employer != "Kept Corp" || spec.Image != "kept.jpg" {
-		t.Errorf("import cleared fields it did not mention: %+v", spec)
+	if spec != (SpeakerSpec{Employer: "Kept Corp", Image: "kept.jpg", Job: "New Job"}) {
+		t.Errorf("spec = %+v", spec)
 	}
-	if spec.Job != "New Job" {
-		t.Errorf("job = %q", spec.Job)
+}
+
+func TestImportIsIdempotent(t *testing.T) {
+	target := newTarget(t)
+	src := loadFrom(t, speakerDoc("dario-haaland", "  name: Dárió Håaland\n"))
+	if first, err := target.ImportFrom(src, ImportOptions{}); err != nil || len(first) != 1 {
+		t.Fatalf("first import = %v, %v", first, err)
+	}
+	if second, err := target.ImportFrom(src, ImportOptions{}); err != nil || len(second) != 0 {
+		t.Errorf("second import = %v, %v; want no changes", second, err)
 	}
 }
 
@@ -192,9 +246,7 @@ func TestImportDryRunWritesNothing(t *testing.T) {
 	target := New(path)
 	src := loadFrom(t, speakerDoc("dario-haaland", "  name: Dárió Håaland\n"))
 
-	opts := testBaseline()
-	opts.DryRun = true
-	changes, err := target.ImportFrom(src, opts)
+	changes, err := target.ImportFrom(src, ImportOptions{DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +262,7 @@ func TestImportDryRunWritesNothing(t *testing.T) {
 }
 
 func TestImportTalkFields(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
+	target := newTarget(t)
 	body := "apiVersion: " + APIVersion + `
 kind: TalkOverride
 metadata:
@@ -219,63 +271,50 @@ spec:
   displayTitle: Kortere tittel
   language: no
   hidden: true
+  posted: "2026-10-16"
 `
-	changes, err := target.ImportFrom(loadFrom(t, body), testBaseline())
+	changes, err := target.ImportFrom(loadFrom(t, body), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 3 {
-		t.Fatalf("changes = %v, want three", changes)
+	if len(changes) != 4 {
+		t.Fatalf("changes = %v, want four", changes)
 	}
 	spec, ok := target.Talk("talk-1")
 	if !ok {
 		t.Fatal("no talk override written")
 	}
-	if spec.DisplayTitle != "Kortere tittel" || spec.Language != "no" || !spec.Hidden {
+	want := TalkSpec{DisplayTitle: "Kortere tittel", Language: "no", Hidden: true, Posted: "2026-10-16"}
+	if spec != want {
 		t.Errorf("spec = %+v", spec)
 	}
 }
 
-// A displayTitle that merely repeats the submitted title is not a shortening,
-// so it is not an edit.
-func TestImportIgnoresADisplayTitleEqualToTheSubmittedOne(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	body := "apiVersion: " + APIVersion + `
-kind: TalkOverride
-metadata:
-  name: talk-1
-spec:
-  displayTitle: Kan skyen kjøre på en brødrister?
-`
-	changes, err := target.ImportFrom(loadFrom(t, body), testBaseline())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(changes) != 0 {
-		t.Errorf("changes = %v, want none", changes)
-	}
-}
-
-// TalkInfo carries no overrides, so a bundle's record must import as nothing.
-func TestImportIgnoresTheRecord(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	body := "apiVersion: " + APIVersion + `
+// A v1alpha1 bundle pre-filled every guess; importing it would confirm them
+// all, so it is refused with a way forward.
+func TestImportRefusesAnOldBundle(t *testing.T) {
+	target := newTarget(t)
+	body := "apiVersion: " + apiVersionV1Alpha1 + `
 kind: TalkInfo
 metadata:
   name: talk-1
 spec:
   talk:
-    title: Something Else
-  speakers:
-    - name: Dario Haaland
-      employer: Bysten Labs
+    title: Something
+---
+apiVersion: ` + apiVersionV1Alpha1 + `
+kind: SpeakerOverride
+metadata:
+  name: dario-haaland
+spec:
+  employer: Guessed Corp
 `
-	changes, err := target.ImportFrom(loadFrom(t, body), testBaseline())
-	if err != nil {
-		t.Fatal(err)
+	_, err := target.ImportFrom(loadFrom(t, body), ImportOptions{})
+	if err == nil || !strings.Contains(err.Error(), "re-export") {
+		t.Errorf("err = %v, want the re-export message", err)
 	}
-	if len(changes) != 0 {
-		t.Errorf("the record was imported as overrides: %v", changes)
+	if s, _ := target.Len(); s != 0 {
+		t.Error("an old bundle was partly imported")
 	}
 }
 
@@ -287,7 +326,7 @@ func TestImportWritesOnceAndReloads(t *testing.T) {
 	src := loadFrom(t, speakerDoc("dario-haaland", "  name: Dárió Håaland\n  job: Engineer\n")+
 		"---\n"+speakerDoc("espen-tveitan", "  image: photos/espen.jpg\n"))
 
-	if _, err := target.ImportFrom(src, testBaseline()); err != nil {
+	if _, err := target.ImportFrom(src, ImportOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := Load(path)
@@ -300,26 +339,60 @@ func TestImportWritesOnceAndReloads(t *testing.T) {
 	if b, ok := reloaded.Speaker("espen-tveitan"); !ok || b.Image != "photos/espen.jpg" {
 		t.Errorf("espen = %+v ok=%v", b, ok)
 	}
+	if reloaded.EditedAt(KindSpeakerOverride, "espen-tveitan").IsZero() {
+		t.Error("editedAt did not survive a save and reload")
+	}
 }
 
-// A speaker the program has never heard of has no baseline, so every field it
-// carries is an edit — importing a bundle from another conference should not
-// silently drop its contents.
-func TestImportWithoutABaselineTakesEverything(t *testing.T) {
-	target := New(filepath.Join(t.TempDir(), "promos.yaml"))
-	src := loadFrom(t, speakerDoc("someone-else", "  name: Someone Else\n  employer: Acme\n"))
-
-	changes, err := target.ImportFrom(src, testBaseline())
+func TestFindBundleGoesByTalkID(t *testing.T) {
+	dir := t.TempDir()
+	set := newTarget(t)
+	for name, id := range map[string]string{"d1-renamed-folder": "talk-1", "d2-other": "talk-2"} {
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name, "promo.yaml"), []byte(exportBundle(t, set, id)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := FindBundle(dir, "talk-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 2 {
-		t.Errorf("changes = %v, want both fields", changes)
+	if filepath.Base(filepath.Dir(got)) != "d1-renamed-folder" {
+		t.Errorf("FindBundle = %q", got)
+	}
+	if _, err := FindBundle(dir, "talk-9"); err == nil {
+		t.Error("want an error for a talk with no bundle")
+	}
+}
+
+func TestImportFilesReportsProgress(t *testing.T) {
+	dir := t.TempDir()
+	var paths []string
+	for _, name := range []string{"a", "b"} {
+		p := filepath.Join(dir, name, "promo.yaml")
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(speakerDoc(name, "  name: N "+name+"\n")), 0o644)
+		paths = append(paths, p)
+	}
+	var steps []int
+	res, err := ImportFiles(newTarget(t), paths, ImportOptions{}, func(done, total int, label string) {
+		if total != 2 {
+			t.Errorf("total = %d", total)
+		}
+		steps = append(steps, done)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 || len(res[0].Changes) != 1 || len(steps) != 2 || steps[1] != 2 {
+		t.Errorf("res = %+v, steps = %v", res, steps)
 	}
 }
 
 func TestSpeakersAndTalksReturnCopies(t *testing.T) {
-	set := New(filepath.Join(t.TempDir(), "promos.yaml"))
+	set := newTarget(t)
 	if err := set.SetSpeaker("a", SpeakerSpec{Employer: "Corp"}); err != nil {
 		t.Fatal(err)
 	}

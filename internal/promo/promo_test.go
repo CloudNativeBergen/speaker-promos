@@ -3,10 +3,12 @@ package promo
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/manifest"
+	"github.com/vehagn/speaker-promos/internal/source"
 )
 
 func testResolver(t *testing.T, talks ...cnd.Talk) *Resolver {
@@ -299,37 +301,50 @@ func TestSpeakerNamesFollowTheLanguage(t *testing.T) {
 	}
 }
 
-// The property that makes import safe: a bundle pre-fills the guessed employer
-// and the upstream name, so importing it unedited must change nothing —
-// whatever overrides the speaker already has.
-func TestAnUneditedBundleImportsAsNothing(t *testing.T) {
+// A correction made before the website last changed may be out of date, and
+// is flagged; one made after is not.
+func TestStaleCorrections(t *testing.T) {
 	src := cnd.Talk{ID: "t", Title: "Talk", Speakers: []cnd.Speaker{
-		{Slug: "plain", Name: "Plain Speaker", Title: "Dev at Acme"},
-		{Slug: "titled", Name: "Titled Speaker", Title: "Ops hos Vestbit"},
-		{ID: "x", Name: "No Slug", Title: "Bysten Labs"},
+		{Slug: "old", Name: "Old Fix", Title: "Dev at Acme"},
+		{Slug: "new", Name: "New Fix", Title: "Ops at Acme"},
+		{Slug: "none", Name: "No Fix"},
 	}}
 	r := testResolver(t, src)
-	setSpeaker(t, r, "titled", manifest.SpeakerSpec{Title: "Co-Chair, CNCF TAG"})
+	r.Source = source.New(filepath.Join(t.TempDir(), "source.yaml"))
 
-	bundle := manifest.New(filepath.Join(t.TempDir(), "promo.yaml"))
-	for _, sp := range r.Talk(src).Speakers {
-		current, _ := r.Set.Speaker(sp.Key)
-		spec := BundleSpec(current, sp)
-		// The title is what the project manifest already says, so it is not a
-		// change either; only the pre-fill is under test here.
-		if err := bundle.SetSpeaker(sp.Key, spec); err != nil {
-			t.Fatal(err)
-		}
-	}
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 9, 0, 0, 0, time.UTC) }
+	at := day(1)
+	r.Set.Now = func() time.Time { return at }
+	r.Source.Now = func() time.Time { return at }
 
-	opts := ImportBaseline(r.Program)
-	opts.DryRun = true
-	changes, err := r.Set.ImportFrom(bundle, opts)
-	if err != nil {
+	setSpeaker(t, r, "old", manifest.SpeakerSpec{Employer: "Acme AS"})
+	setTalk(t, r, "t", manifest.TalkSpec{Posted: "2026-10-01"})
+	at = day(2)
+	if _, err := r.Source.Reconcile(&cnd.Program{Talks: []cnd.Talk{src}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 0 {
-		t.Errorf("an unedited bundle imported %d change(s): %v", len(changes), changes)
+	at = day(3)
+	setSpeaker(t, r, "new", manifest.SpeakerSpec{Employer: "Acme AS"})
+
+	got := r.Talk(src)
+	if !got.Speakers[0].Stale {
+		t.Error("a correction older than the website's data is not flagged")
+	}
+	if got.Speakers[1].Stale || got.Speakers[2].Stale {
+		t.Errorf("flagged speakers that are not stale: %+v", got.StaleSpeakers())
+	}
+	if !got.Speakers[0].UpdatedAt.Equal(day(2)) || !got.Speakers[0].EditedAt.Equal(day(1)) {
+		t.Errorf("times = %v / %v", got.Speakers[0].UpdatedAt, got.Speakers[0].EditedAt)
+	}
+	// Recording a posted date is not a correction of the talk's content.
+	if got.Stale {
+		t.Error("a posted date made the talk stale")
+	}
+	if got.Posted != "2026-10-01" {
+		t.Errorf("Posted = %q", got.Posted)
+	}
+	if !got.LastChanged().Equal(day(3)) {
+		t.Errorf("LastChanged = %v", got.LastChanged())
 	}
 }
 

@@ -12,8 +12,10 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/cache"
 	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/promo"
+	"github.com/vehagn/speaker-promos/internal/source"
 )
 
 const usage = `promo — speaker promo graphics for Cloud Native Days
@@ -78,12 +80,15 @@ type commonFlags struct {
 	domain  string
 	ttl     time.Duration
 	noCache bool
+	source  string
 }
 
 func (c *commonFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&c.domain, "domain", cnd.DefaultDomain, "conference site to read the program from")
 	fs.DurationVar(&c.ttl, "cache-ttl", 6*time.Hour, "how long a cached page stays fresh")
 	fs.BoolVar(&c.noCache, "no-cache", false, "always re-fetch, ignoring the cache")
+	fs.StringVar(&c.source, "source", source.DefaultPath,
+		"snapshot of the website's data, updated whenever it changes")
 }
 
 // loader reads the program and the speaker pages, honouring --domain and the
@@ -94,8 +99,41 @@ func (c *commonFlags) loader() *cnd.Loader {
 	return loader
 }
 
-func (c *commonFlags) load() (*cnd.Program, error) {
-	return c.loader().Load()
+// load reads the program and records it in the website snapshot, which is
+// rewritten only if the website's content changed since the last run.
+func (c *commonFlags) load(loader *cnd.Loader) (*cnd.Program, *source.Snapshot, error) {
+	program, err := loader.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+	snap, err := source.Load(c.source)
+	if err != nil {
+		return nil, nil, err
+	}
+	changed, err := snap.Reconcile(program)
+	if err != nil {
+		return nil, nil, err
+	}
+	if changed {
+		fmt.Fprintf(os.Stderr, "note: the website's data changed; recorded in %s\n", snap.Path())
+	}
+	return program, snap, nil
+}
+
+// resolver builds the resolver every drafting command uses: the program, its
+// corrections, the snapshot's times and handles, and a speaker-page fetch
+// unless noLinks — in which case the handles last recorded in the snapshot
+// are used.
+func resolver(program *cnd.Program, set *manifest.Set, snap *source.Snapshot, language lang.Language,
+	loader *cnd.Loader, noLinks bool) *promo.Resolver {
+	var fetch func(cnd.Speaker) (cnd.Links, error)
+	if !noLinks {
+		fetch = linkFetcher(loader)
+	}
+	return &promo.Resolver{
+		Program: program, Set: set, Source: snap, Language: language,
+		Links: snap.LinksFunc(fetch),
+	}
 }
 
 // photoCache is the cache speaker photos are fetched through, or nil for a run
@@ -141,32 +179,26 @@ func selectTalks(r *promo.Resolver, all bool, selectors []string) ([]promo.Talk,
 	return talks, nil
 }
 
-// linkFetcher is the Resolver.Links callback for a CLI run: it fetches each
-// speaker page at most once, since a speaker on two talks would otherwise be
-// fetched twice and each page is around 3 MB. Nil with --no-links.
-//
-// warn, when set, is told about a page that could not be read; handles only
-// suggest mentions, so a failure never aborts the run.
-func linkFetcher(loader *cnd.Loader, skip bool, warn func(cnd.Speaker, error)) func(cnd.Speaker) cnd.Links {
-	if skip {
-		return nil
+// linkFetcher scrapes speaker pages at most once per run, since a speaker on
+// two talks would otherwise be fetched twice and each page is around 3 MB. A
+// failure is noted and the snapshot's handles used instead; handles only
+// suggest mentions, so it never aborts the run.
+func linkFetcher(loader *cnd.Loader) func(cnd.Speaker) (cnd.Links, error) {
+	type result struct {
+		links cnd.Links
+		err   error
 	}
-	seen := map[string]cnd.Links{}
-	return func(sp cnd.Speaker) cnd.Links {
-		// A speaker page is addressed by slug, so a speaker without one simply
-		// has no profile to scrape.
-		if sp.Slug == "" {
-			return cnd.Links{}
-		}
-		if l, ok := seen[sp.Key()]; ok {
-			return l
+	seen := map[string]result{}
+	return func(sp cnd.Speaker) (cnd.Links, error) {
+		if r, ok := seen[sp.Key()]; ok {
+			return r.links, r.err
 		}
 		l, err := loader.SpeakerLinks(sp)
-		if err != nil && warn != nil {
-			warn(sp, err)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "note: could not read %s's profile page: %v\n", sp.Name, err)
 		}
-		seen[sp.Key()] = l
-		return l
+		seen[sp.Key()] = result{l, err}
+		return l, err
 	}
 }
 

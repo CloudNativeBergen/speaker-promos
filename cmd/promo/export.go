@@ -7,7 +7,7 @@ import (
 
 	"github.com/vehagn/speaker-promos/internal/export"
 	"github.com/vehagn/speaker-promos/internal/lang"
-	"github.com/vehagn/speaker-promos/internal/promo"
+	"github.com/vehagn/speaker-promos/internal/progress"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
 	"github.com/vehagn/speaker-promos/internal/theme"
@@ -25,7 +25,7 @@ func cmdExport(args []string) error {
 	formats := fs.String("formats", "svg,png,jpg", "card formats: any of svg, png, jpg")
 	themePath := fs.String("theme", "", "theme YAML to merge over the built-in theme")
 	noPhotos := fs.Bool("no-photos", false, "skip speaker photos (renders initials instead)")
-	noLinks := fs.Bool("no-links", false, "skip fetching speaker pages for social handles")
+	noLinks := fs.Bool("no-links", false, "use the handles last recorded in the snapshot rather than fetching speaker pages")
 	stripEmoji := fs.Bool("strip-emoji", false, "remove emoji rather than relying on a system emoji font")
 	width := fs.Int("width", 0, "raster width in pixels (default: the card's own width)")
 	quality := fs.Int("jpeg-quality", 88, "JPEG quality, 1-100")
@@ -56,16 +56,11 @@ func cmdExport(args []string) error {
 		return err
 	}
 	loader := common.loader()
-	program, err := loader.Load()
+	program, snap, err := common.load(loader)
 	if err != nil {
 		return err
 	}
-	resolver := &promo.Resolver{
-		Program:  program,
-		Set:      set,
-		Language: copyLang,
-		Links:    linkFetcher(loader, *noLinks, nil),
-	}
+	resolver := resolver(program, set, snap, copyLang, loader, *noLinks)
 	talks, err := selectTalks(resolver, *all, fs.Args())
 	if err != nil {
 		return err
@@ -97,18 +92,22 @@ func cmdExport(args []string) error {
 		HasConverter: hasConv,
 	}
 
+	bar := progress.NewBar(os.Stderr)
+	results, err := exporter.WriteAll(*out, talks, bar.Func())
+	bar.Clear()
+
 	var warned []string
 	files := 0
-	for _, t := range talks {
-		res, err := exporter.Write(*out, t)
-		if err != nil {
-			return err
-		}
+	for _, res := range results {
 		files += len(res.Files)
 		fmt.Printf("%s/  %s\n", res.Dir, strings.Join(res.Files, " "))
 		for _, w := range res.Warnings {
 			warned = append(warned, res.Dir+": "+w)
 		}
+	}
+
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("\n%d talks, %d files under %s/\n", len(talks), files, *out)

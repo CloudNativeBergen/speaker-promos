@@ -14,6 +14,8 @@
 package manifest
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +25,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
@@ -32,27 +35,57 @@ import (
 // DefaultPath is the manifest a command reads when none is given.
 const DefaultPath = "promos.yaml"
 
-// APIVersion is the only accepted apiVersion.
-const APIVersion = "promo.cloudnativedays.no/v1alpha1"
+// APIVersion is the version every file is written with.
+//
+// v1alpha2 added the timestamps and revisions in Metadata, the posted date, and
+// the bundle's Source and Output kinds. A v1alpha1 project manifest still
+// loads, since everything it can say means the same now, and is written back as
+// v1alpha2 on the next save.
+const APIVersion = "promo.cloudnativedays.no/v1alpha2"
+
+// apiVersionV1Alpha1 is the previous version, still accepted on load.
+const apiVersionV1Alpha1 = "promo.cloudnativedays.no/v1alpha1"
 
 // The kinds of object a manifest may contain.
 const (
 	KindSpeakerOverride = "SpeakerOverride"
 	KindTalkOverride    = "TalkOverride"
-	// KindTalkInfo is informational: `promo export` writes it into a bundle's
-	// promo.yaml to record everything known about the talk. It is accepted when
-	// a manifest is loaded and then ignored, so an exported bundle can be
-	// passed straight back with --manifest without having to be edited down
-	// first.
+	// KindSource and KindOutput are informational: a bundle's record of what
+	// the website said and of what its cards and copy then used. They are
+	// accepted when a manifest is loaded and then ignored, so an exported
+	// bundle can be passed straight back with --manifest.
+	KindSource = "Source"
+	KindOutput = "Output"
+	// KindTalkInfo is the v1alpha1 bundle record. It still loads, but marks
+	// the file as an old bundle, which an import refuses: those pre-filled
+	// every speaker with the tool's guesses, and importing that would turn
+	// every guess into a confirmed correction.
 	KindTalkInfo = "TalkInfo"
 )
 
-// Metadata names the object an override applies to.
+// Metadata names an object and says when it last changed.
 type Metadata struct {
 	// Name is a speaker key (cnd.Speaker.Key: the slug, where there is one) or
 	// a talk id.
 	Name string `yaml:"name"`
+	// EditedAt is when an override last changed: set by `promo serve` and
+	// `promo import` when — and only when — the correction itself changes.
+	EditedAt time.Time `yaml:"editedAt,omitempty"`
+	// UpdatedAt is when the website's data for a Source last changed, and for
+	// an Output the latest of that and its overrides' EditedAt.
+	UpdatedAt time.Time `yaml:"updatedAt,omitempty"`
+	// Revision identifies the override a bundle was exported with, so an
+	// import can tell what you edited in the bundle from what changed in the
+	// project since. See ImportFrom.
+	Revision string `yaml:"revision,omitempty"`
 }
+
+// metadataFields are the keys Metadata accepts, checked on load.
+var metadataFields = []string{"name", "editedAt", "updatedAt", "revision"}
+
+// Stamp is the form every timestamp is written in: UTC, to the second. Finer
+// than that is noise in a file meant to be read in a diff.
+func Stamp(t time.Time) time.Time { return t.UTC().Truncate(time.Second) }
 
 // SpeakerSpec corrects what is known about one speaker.
 //
@@ -189,7 +222,8 @@ func (spec SpeakerSpec) Diff(base SpeakerSpec) SpeakerSpec {
 	})
 }
 
-// TalkSpec overrides how a talk is presented.
+// TalkSpec overrides how a talk is presented, and records what has been done
+// with it.
 type TalkSpec struct {
 	// Language forces the draft copy's language when detection gets it wrong,
 	// which a bilingual title will: "en" or "no", empty to auto-detect.
@@ -200,11 +234,71 @@ type TalkSpec struct {
 	// Hidden excludes the talk from bulk operations: a cancelled session, or
 	// one whose promo has already gone out.
 	Hidden bool `yaml:"hidden,omitempty"`
+	// Posted is the date the promo went out, "YYYY-MM-DD", and empty while it
+	// has not. It is a record kept by hand rather than anything the tool acts
+	// on: posting stays manual.
+	Posted string `yaml:"posted,omitempty"`
 }
 
-func (t TalkSpec) empty() bool {
-	return t.DisplayTitle == "" && !t.Hidden && t.Language == ""
+func (t TalkSpec) empty() bool { return t == TalkSpec{} }
+
+// talkFields binds each of a TalkSpec's fields to its manifest name, as
+// specFields does for a speaker, so the import can walk and report them.
+var talkFields = []struct {
+	name string
+	get  func(TalkSpec) string
+	set  func(*TalkSpec, string)
+}{
+	{"displayTitle", func(t TalkSpec) string { return t.DisplayTitle }, func(t *TalkSpec, v string) { t.DisplayTitle = v }},
+	{"language", func(t TalkSpec) string { return t.Language }, func(t *TalkSpec, v string) { t.Language = v }},
+	{"hidden", func(t TalkSpec) string {
+		if t.Hidden {
+			return "true"
+		}
+		return ""
+	}, func(t *TalkSpec, v string) { t.Hidden = v == "true" }},
+	{"posted", func(t TalkSpec) string { return t.Posted }, func(t *TalkSpec, v string) { t.Posted = v }},
 }
+
+// ParsePosted validates a posted date. Empty means not posted.
+func ParsePosted(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	if _, err := time.Parse(time.DateOnly, s); err != nil {
+		return "", fmt.Errorf("posted %q is not a date (want YYYY-MM-DD)", s)
+	}
+	return s, nil
+}
+
+func trimTalk(t TalkSpec) TalkSpec {
+	t.DisplayTitle = strings.TrimSpace(t.DisplayTitle)
+	t.Language = strings.TrimSpace(t.Language)
+	t.Posted = strings.TrimSpace(t.Posted)
+	return t
+}
+
+// Revision is a short content hash of an override spec. A bundle records the
+// revision each override had when it was exported, which is what lets an
+// import tell your edit to the bundle apart from a later edit to the project.
+func Revision(spec any) string {
+	b, err := yaml.Marshal(spec)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:6])
+}
+
+// entry is one stored override and when it last changed.
+type entry[T any] struct {
+	Spec     T
+	EditedAt time.Time
+}
+
+// ref names one object in a Set.
+type ref struct{ Kind, Name string }
 
 // Set is a loaded manifest.
 //
@@ -216,8 +310,20 @@ func (t TalkSpec) empty() bool {
 type Set struct {
 	mu       sync.Mutex
 	path     string
-	speakers map[string]SpeakerSpec
-	talks    map[string]TalkSpec
+	speakers map[string]entry[SpeakerSpec]
+	talks    map[string]entry[TalkSpec]
+	// revisions are the ones a bundle's overrides were exported with, read on
+	// load. Only an import consults them.
+	revisions map[ref]string
+	// legacy is set when the file holds a v1alpha1 bundle record.
+	legacy bool
+	// bundleTalk is the talk id a bundle's Source names, or "" for a file that
+	// is not a bundle.
+	bundleTalk string
+
+	// Now is the clock edits are stamped with; nil means time.Now. Tests set
+	// it to get reproducible files.
+	Now func() time.Time
 }
 
 // New returns an empty Set that will save to path.
@@ -226,14 +332,30 @@ func New(path string) *Set {
 		path = DefaultPath
 	}
 	return &Set{
-		path:     path,
-		speakers: map[string]SpeakerSpec{},
-		talks:    map[string]TalkSpec{},
+		path:      path,
+		speakers:  map[string]entry[SpeakerSpec]{},
+		talks:     map[string]entry[TalkSpec]{},
+		revisions: map[ref]string{},
 	}
+}
+
+func (s *Set) now() time.Time {
+	if s.Now != nil {
+		return Stamp(s.Now())
+	}
+	return Stamp(time.Now())
 }
 
 // Path is the file this Set saves to.
 func (s *Set) Path() string { return s.path }
+
+// BundleTalk is the talk a bundle was exported for, or "" when the file is not
+// a bundle.
+func (s *Set) BundleTalk() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bundleTalk
+}
 
 // Load reads a manifest. A missing file yields an empty Set and no error: the
 // path has a default and most runs start without one.
@@ -294,11 +416,21 @@ func (s *Set) addDocument(node *yaml.Node) error {
 		return err
 	}
 
-	if doc.APIVersion != APIVersion {
+	if doc.APIVersion != APIVersion && doc.APIVersion != apiVersionV1Alpha1 {
 		return fmt.Errorf("line %d: unsupported apiVersion %q (want %q)", node.Line, doc.APIVersion, APIVersion)
+	}
+	if err := checkFields(field(node, "metadata"), metadataFields...); err != nil {
+		return err
 	}
 	if doc.Metadata.Name == "" {
 		return fmt.Errorf("line %d: %s needs a metadata.name (a speaker key or talk id)", node.Line, doc.Kind)
+	}
+	if rev := doc.Metadata.Revision; rev != "" {
+		s.revisions[ref{doc.Kind, doc.Metadata.Name}] = rev
+	}
+	editedAt := doc.Metadata.EditedAt
+	if !editedAt.IsZero() {
+		editedAt = Stamp(editedAt)
 	}
 
 	switch doc.Kind {
@@ -318,9 +450,9 @@ func (s *Set) addDocument(node *yaml.Node) error {
 		if _, dup := s.speakers[doc.Metadata.Name]; dup {
 			return fmt.Errorf("line %d: duplicate %s for %q", node.Line, doc.Kind, doc.Metadata.Name)
 		}
-		s.speakers[doc.Metadata.Name] = spec
+		s.speakers[doc.Metadata.Name] = entry[SpeakerSpec]{spec, editedAt}
 	case KindTalkOverride:
-		if err := checkFields(&doc.Spec, "displayTitle", "hidden", "language"); err != nil {
+		if err := checkFields(&doc.Spec, "displayTitle", "hidden", "language", "posted"); err != nil {
 			return err
 		}
 		var spec TalkSpec
@@ -332,18 +464,27 @@ func (s *Set) addDocument(node *yaml.Node) error {
 		if _, err := lang.ParseLanguage(spec.Language); err != nil {
 			return fmt.Errorf("line %d: %s/%s: %w", doc.Spec.Line, doc.Kind, doc.Metadata.Name, err)
 		}
+		if _, err := ParsePosted(spec.Posted); err != nil {
+			return fmt.Errorf("line %d: %s/%s: %w", doc.Spec.Line, doc.Kind, doc.Metadata.Name, err)
+		}
 		if _, dup := s.talks[doc.Metadata.Name]; dup {
 			return fmt.Errorf("line %d: duplicate %s for %q", node.Line, doc.Kind, doc.Metadata.Name)
 		}
-		s.talks[doc.Metadata.Name] = spec
+		s.talks[doc.Metadata.Name] = entry[TalkSpec]{trimTalk(spec), editedAt}
+	case KindSource, KindOutput:
+		if doc.Kind == KindSource {
+			s.bundleTalk = doc.Metadata.Name
+		}
+		// Informational, and deliberately not field-checked: they are a record
+		// of what an export contained, so they may grow fields that an older
+		// binary has never heard of. Rejecting those would make bundles from a
+		// newer version unloadable for no benefit.
 	case KindTalkInfo:
-		// Informational, and deliberately not field-checked: it is a record of
-		// what an export contained, so it may grow fields that an older binary
-		// has never heard of. Rejecting those would make bundles from a newer
-		// version unloadable for no benefit.
+		s.legacy = true
+		s.bundleTalk = doc.Metadata.Name
 	default:
-		return fmt.Errorf("line %d: unknown kind %q (want %s, %s or %s)",
-			node.Line, doc.Kind, KindSpeakerOverride, KindTalkOverride, KindTalkInfo)
+		return fmt.Errorf("line %d: unknown kind %q (want %s, %s, %s or %s)",
+			node.Line, doc.Kind, KindSpeakerOverride, KindTalkOverride, KindSource, KindOutput)
 	}
 	return nil
 }
@@ -388,16 +529,30 @@ func field(n *yaml.Node, key string) *yaml.Node {
 func (s *Set) Speaker(key string) (SpeakerSpec, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	spec, ok := s.speakers[key]
-	return spec, ok
+	e, ok := s.speakers[key]
+	return e.Spec, ok
 }
 
 // Talk returns the override for a talk id.
 func (s *Set) Talk(id string) (TalkSpec, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	spec, ok := s.talks[id]
-	return spec, ok
+	e, ok := s.talks[id]
+	return e.Spec, ok
+}
+
+// EditedAt is when an override last changed, or the zero time when it has no
+// stamp — never edited, or written by hand without one.
+func (s *Set) EditedAt(kind, name string) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch kind {
+	case KindSpeakerOverride:
+		return s.speakers[name].EditedAt
+	case KindTalkOverride:
+		return s.talks[name].EditedAt
+	}
+	return time.Time{}
 }
 
 // Len reports how many overrides of each kind are loaded.
@@ -411,30 +566,40 @@ func (s *Set) Len() (speakers, talks int) {
 //
 // An override that sets nothing is deleted rather than written as an empty
 // object, so clearing a field in the preview server leaves the manifest as
-// clean as it was before the edit.
+// clean as it was before the edit. The edit is stamped only if it changed
+// something, so saving a form unchanged leaves the file byte-identical.
 func (s *Set) SetSpeaker(key string, spec SpeakerSpec) error {
 	spec = trimSpeaker(spec)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if spec.empty() {
-		delete(s.speakers, key)
-	} else {
-		s.speakers[key] = spec
-	}
+	putEntry(s.speakers, key, spec, s.now())
 	return s.save()
 }
 
 // SetTalk records a talk override and saves the manifest.
 func (s *Set) SetTalk(id string, spec TalkSpec) error {
-	spec.DisplayTitle = strings.TrimSpace(spec.DisplayTitle)
+	spec = trimTalk(spec)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if spec.empty() {
-		delete(s.talks, id)
-	} else {
-		s.talks[id] = spec
-	}
+	putEntry(s.talks, id, spec, s.now())
 	return s.save()
+}
+
+// putEntry stores spec under name, stamping it with now if it changed, and
+// deleting it when it is empty. It reports whether anything changed.
+func putEntry[T comparable](m map[string]entry[T], name string, spec T, now time.Time) bool {
+	var zero T
+	cur, had := m[name]
+	switch {
+	case spec == zero:
+		delete(m, name)
+		return had
+	case had && cur.Spec == spec:
+		return false
+	default:
+		m[name] = entry[T]{spec, now}
+		return true
+	}
 }
 
 // trimSpeaker trims every field, since these arrive either from a browser form
@@ -466,20 +631,20 @@ func (s *Set) save() error {
 	if s.path == "" {
 		return errors.New("manifest has no path to save to")
 	}
-	data, err := encode(fileHeader, s.documents())
+	data, err := Encode(fileHeader, s.documents())
 	if err != nil {
 		return fmt.Errorf("encoding %s: %w", s.path, err)
 	}
-	if err := writeAtomic(s.path, data); err != nil {
+	if err := WriteAtomic(s.path, data); err != nil {
 		return fmt.Errorf("writing %s: %w", s.path, err)
 	}
 	return nil
 }
 
-// encode renders manifest documents as a YAML file led by a header comment.
-// It is shared by the project manifest and the per-talk bundles, which differ
-// only in their header and their documents.
-func encode(header string, docs []document) ([]byte, error) {
+// Encode renders manifest documents as a YAML file led by a header comment.
+// It is shared by the project manifest, the website snapshot and the per-talk
+// bundles, which differ only in their header and their documents.
+func Encode(header string, docs []Document) ([]byte, error) {
 	var b strings.Builder
 	b.WriteString(header)
 	// A yaml.Encoder that is closed without having written a document errors,
@@ -499,10 +664,10 @@ func encode(header string, docs []document) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// writeAtomic writes data through a temporary file in the same directory, so an
+// WriteAtomic writes data through a temporary file in the same directory, so an
 // interrupted save cannot truncate a manifest that holds an afternoon of
 // corrections.
-func writeAtomic(path string, data []byte) error {
+func WriteAtomic(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
@@ -521,24 +686,57 @@ func writeAtomic(path string, data []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// document is one object as it appears on disk.
-type document struct {
+// Document is one object as it appears on disk.
+type Document struct {
 	APIVersion string   `yaml:"apiVersion"`
 	Kind       string   `yaml:"kind"`
 	Metadata   Metadata `yaml:"metadata"`
 	Spec       any      `yaml:"spec"`
 }
 
+// Doc builds a document of the current apiVersion.
+func Doc(kind string, meta Metadata, spec any) Document {
+	return Document{APIVersion, kind, meta, spec}
+}
+
 // documents renders the whole Set, sorted by kind then name so that the file
 // stays diff-stable: an edit to one speaker should show up as a change to one
 // object, not a reshuffle of the file. The caller must hold s.mu.
-func (s *Set) documents() []document {
-	out := make([]document, 0, len(s.speakers)+len(s.talks))
+func (s *Set) documents() []Document {
+	out := make([]Document, 0, len(s.speakers)+len(s.talks))
 	for _, name := range slices.Sorted(maps.Keys(s.speakers)) {
-		out = append(out, document{APIVersion, KindSpeakerOverride, Metadata{name}, s.speakers[name]})
+		e := s.speakers[name]
+		if e.Spec.empty() {
+			continue
+		}
+		out = append(out, Doc(KindSpeakerOverride, Metadata{Name: name, EditedAt: e.EditedAt}, e.Spec))
 	}
 	for _, name := range slices.Sorted(maps.Keys(s.talks)) {
-		out = append(out, document{APIVersion, KindTalkOverride, Metadata{name}, s.talks[name]})
+		e := s.talks[name]
+		if e.Spec.empty() {
+			continue
+		}
+		out = append(out, Doc(KindTalkOverride, Metadata{Name: name, EditedAt: e.EditedAt}, e.Spec))
+	}
+	return out
+}
+
+// BundleOverrides renders the overrides a bundle carries for one talk: one
+// TalkOverride and one SpeakerOverride per speaker key, in that order.
+//
+// Each is written even when it corrects nothing — as `spec: {}` — so a bundle
+// always has the object to type a correction into, and each carries the
+// revision it was exported at, which is what ImportFrom merges against.
+func (s *Set) BundleOverrides(talkID string, speakerKeys []string) []Document {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.talks[talkID]
+	out := []Document{Doc(KindTalkOverride,
+		Metadata{Name: talkID, EditedAt: t.EditedAt, Revision: Revision(t.Spec)}, t.Spec)}
+	for _, key := range speakerKeys {
+		sp := s.speakers[key]
+		out = append(out, Doc(KindSpeakerOverride,
+			Metadata{Name: key, EditedAt: sp.EditedAt, Revision: Revision(sp.Spec)}, sp.Spec))
 	}
 	return out
 }

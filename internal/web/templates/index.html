@@ -109,6 +109,18 @@ button.primary { background: var(--brand); border-color: transparent; }
 header .action { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 header .check { color: rgba(255,255,255,.9); font-size: 12px; gap: 5px; }
 .htmx-request .card img { opacity: .4; transition: opacity .1s; }
+.times { color: var(--muted); font-size: 12px; margin: -8px 0 12px; }
+.badge {
+  font-size: 11px; font-weight: 600; vertical-align: 3px; padding: 2px 8px;
+  border-radius: 999px; background: var(--ok); color: var(--bg);
+}
+.job { display: flex; align-items: center; gap: 12px; }
+.job progress { flex: 1; max-width: 420px; accent-color: var(--accent); }
+.status .error { color: var(--bad); }
+input[type=date] {
+  padding: 6px 8px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--ink); font-size: 14px; color-scheme: dark;
+}
 </style>
 </head>
 <body>
@@ -116,18 +128,21 @@ header .check { color: rgba(255,255,255,.9); font-size: 12px; gap: 5px; }
   <h1>{{.Conference.Title}}</h1>
   <span class="meta">{{.Conference.DateRange}} · {{.Conference.Location}}</span>
   <span class="spacer"></span>
-  <span class="meta">{{len .Talks}} talks</span>
+  <span class="meta">{{len .Talks}} talks · website data fetched {{ago .FetchedAt}}
+    {{- with day .ChangedAt}}, last changed {{.}}{{end}}</span>
   {{range .Sizes}}<a href="/?size={{.}}"><button {{if eq . $.Size}}class="primary"{{end}}>{{.}}</button></a>{{end}}
+  {{/* Both run as jobs: the response is a progress bar in #status that polls
+       until the job is done. */}}
   <form class="action" hx-post="/export" hx-target="#status" hx-swap="innerHTML">
     <input type="hidden" name="size" value="{{.Size}}">
     <button>Export all → {{.OutDir}}/</button>
   </form>
-  {{/* The import swaps the whole row list, because a merge can change any
-       number of talks; the summary comes back out-of-band into #status. */}}
-  <form class="action" hx-post="/import" hx-target="#rows" hx-swap="outerHTML">
+  {{/* When it finishes, the import swaps the whole row list out-of-band,
+       because a merge can change any number of talks. */}}
+  <form class="action" hx-post="/import" hx-target="#status" hx-swap="innerHTML">
     <input type="hidden" name="size" value="{{.Size}}">
-    <label class="check" title="Also accept the pre-filled guesses as correct">
-      <input type="checkbox" name="confirm-guesses" value="1"> guesses
+    <label class="check" title="Where a bundle and this manifest both changed an override, take the bundle's">
+      <input type="checkbox" name="force" value="1"> force
     </label>
     <button>Import ← {{.OutDir}}/</button>
   </form>

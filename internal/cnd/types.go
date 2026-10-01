@@ -116,17 +116,20 @@ type Talk struct {
 
 // Slot is where a talk sits in the schedule: the website's `scheduleInfo`.
 type Slot struct {
-	Date      string `json:"date"` // ISO date of the day it runs
-	Day       int    `json:"day"`  // 1-based day index within the conference
-	Track     string `json:"track"`
-	StartTime string `json:"startTime"` // "HH:MM"
-	EndTime   string `json:"endTime"`
+	Date      string `json:"date" yaml:"date"` // ISO date of the day it runs
+	Day       int    `json:"day" yaml:"day"`   // 1-based day index within the conference
+	Track     string `json:"track" yaml:"track"`
+	StartTime string `json:"startTime" yaml:"startTime"` // "HH:MM"
+	EndTime   string `json:"endTime" yaml:"endTime"`
 }
 
 // Program is a conference and its scheduled talks.
 type Program struct {
 	Conference Conference `json:"conference"`
 	Talks      []Talk     `json:"talks"`
+	// FetchedAt is when the program page was fetched — from the cache, so it
+	// can be well before this run. Zero when unknown.
+	FetchedAt time.Time `json:"fetchedAt,omitzero"`
 }
 
 // Talk returns a talk by id.

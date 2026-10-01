@@ -91,7 +91,11 @@ func (l *Loader) Load() (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Program{Conference: conf, Talks: talks}, nil
+	fetched := l.Cache.FetchedAt(url)
+	if fetched.IsZero() {
+		fetched = time.Now()
+	}
+	return &Program{Conference: conf, Talks: talks, FetchedAt: fetched}, nil
 }
 
 func decodeConference(flight string, rows map[string]string, domain string) (Conference, error) {

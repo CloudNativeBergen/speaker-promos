@@ -1,24 +1,23 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/vehagn/speaker-promos/internal/manifest"
-	"github.com/vehagn/speaker-promos/internal/promo"
+	"github.com/vehagn/speaker-promos/internal/progress"
 )
 
 func cmdImport(args []string) error {
 	fs := newFlagSet("import")
-	var common commonFlags
-	common.register(fs)
 	var manifestPath manifestFlag
 	manifestPath.register(fs)
 	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
-	confirm := fs.Bool("confirm-guesses", false,
-		"also import the pre-filled guesses, accepting them as correct")
+	force := fs.Bool("force", false,
+		"where a bundle and the manifest both changed an override, take the bundle's")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -27,55 +26,53 @@ func cmdImport(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("importing %d file(s)\n", len(paths))
-
 	target, err := manifestPath.load()
 	if err != nil {
 		return err
 	}
-	// The program supplies the baseline: what the tool would say with no
-	// overrides at all. Without it an import cannot tell an edit from a
-	// pre-filled guess coming back unchanged.
-	program, err := common.load()
+
+	// Each bundle records the revision its overrides were exported at, so the
+	// merge needs nothing but the bundle and the manifest — not the program.
+	bar := progress.NewBar(os.Stderr)
+	results, err := manifest.ImportFiles(target, paths, manifest.ImportOptions{
+		Force: *force, DryRun: *dryRun,
+	}, bar.Func())
+	bar.Clear()
+
+	var applied, conflicts int
+	for _, res := range results {
+		if len(res.Changes) == 0 {
+			continue
+		}
+		fmt.Printf("%s\n", relativeTo(res.Path))
+		for _, c := range res.Changes {
+			fmt.Println("  " + c.String())
+			if c.Conflict {
+				conflicts++
+			} else {
+				applied++
+			}
+		}
+		fmt.Println()
+	}
+	if errors.Is(err, manifest.ErrLegacyBundle) {
+		return fmt.Errorf("%w\n(run `promo export` again; your corrections are in %s, not lost)", err, target.Path())
+	}
 	if err != nil {
 		return err
 	}
-	opts := promo.ImportBaseline(program)
-	opts.ConfirmGuesses = *confirm
-	opts.DryRun = *dryRun
 
-	var all []manifest.Change
-	for _, path := range paths {
-		src, err := manifest.Load(path)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", path, err)
-		}
-		changes, err := target.ImportFrom(src, opts)
-		if err != nil {
-			return err
-		}
-		if len(changes) > 0 {
-			rel := relativeTo(path)
-			fmt.Printf("\n%s\n", rel)
-			manifest.SortChanges(changes)
-			for _, c := range changes {
-				fmt.Println("  " + c.String())
-			}
-		}
-		all = append(all, changes...)
-	}
-
-	fmt.Println()
 	switch {
-	case len(all) == 0 && *confirm:
-		fmt.Println("nothing to import: every value already matches the manifest")
-	case len(all) == 0:
-		fmt.Printf("nothing to import: every value matches either the manifest or the\n" +
-			"tool's own guess. Use --confirm-guesses to accept the guesses as correct.\n")
+	case applied == 0 && conflicts == 0:
+		fmt.Printf("nothing to import from %d file(s): no bundle was edited since it was exported\n", len(paths))
 	case *dryRun:
-		fmt.Printf("%d change(s) — nothing written (--dry-run)\n", len(all))
+		fmt.Printf("%d change(s) from %d file(s) — nothing written (--dry-run)\n", applied, len(paths))
 	default:
-		fmt.Printf("%d change(s) written to %s\n", len(all), target.Path())
+		fmt.Printf("%d change(s) from %d file(s) written to %s\n", applied, len(paths), target.Path())
+	}
+	if conflicts > 0 {
+		fmt.Printf("%d conflict(s) left as the manifest has them: changed in both places since the export.\n"+
+			"Re-run with --force to take the bundles' version.\n", conflicts)
 	}
 	return nil
 }

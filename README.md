@@ -47,6 +47,30 @@ literal `$55`.
 Pages are cached under `~/.cache/cnd-promos` (`--cache-ttl`, `--no-cache`), because the
 program page is ~5 MB and each speaker page ~3.4 MB.
 
+### Three kinds of data, kept apart
+
+| | File | Who writes it |
+|---|---|---|
+| **Source** — what the website said | `source.yaml` (`--source`) | every command, after reading the program |
+| **Overrides** — your corrections | `promos.yaml` (`--manifest`) | you, `promo serve` and `promo import` |
+| **Output** — what the cards and copy used | each bundle's `promo.yaml`, `Output` | `promo export` |
+
+`source.yaml` is a snapshot of the program and the scraped handles, one `Source` object per
+talk. Each talk and speaker has an `updatedAt`: when the tool first saw its current content.
+The file is rewritten **only when the website's content changes**, so it is meant to be
+committed. `git log -p source.yaml` is then a record of what the CMS changed and when.
+The fetch time itself is not stored, because it would change every run; it comes from the
+cache, and `promo list` and `promo serve` show both times.
+
+Each override records an `editedAt`, set when the correction actually changes. A correction
+made *before* the website last changed that speaker or talk is **stale**. A speaker
+retitling themselves after you fixed their role line is the typical case. Stale corrections
+are flagged in `promo serve`, in NOTES.txt and in the bundle's `Output.stale`, since the
+correction may now be wrong or no longer needed.
+
+`--no-links` no longer means *no handles*: it means *don't fetch*, and uses the handles
+last recorded in `source.yaml`.
+
 ## Selectors
 
 Every command that takes a talk accepts a `<selector>`, resolved most-specific first:
@@ -100,7 +124,7 @@ out/d1-0900-dario-haaland-kan-skyen-kjore-pa-en-brodrister/
 ├── linkedin.txt      the post body, nothing else — paste it verbatim
 ├── bluesky.txt       likewise, inside the 300-character limit
 ├── NOTES.txt         what to check first, and the profiles to mention
-└── promo.yaml        the overrides that produced all of the above
+└── promo.yaml        what the website said, your corrections, and what came out
 ```
 
 `--formats` picks any of `svg,png,jpg` (all three by default) and `--size` any of
@@ -108,21 +132,34 @@ out/d1-0900-dario-haaland-kan-skyen-kjore-pa-en-brodrister/
 `linkedin.txt` and `bluesky.txt` hold the post and nothing else, so nothing about guessed
 employers can be pasted into a real post by accident.
 
-Each speaker's `SpeakerOverride` comes pre-filled with their name, so correcting it is
-editing a line rather than knowing the field exists.
+`promo.yaml` holds the three kinds of data as separate documents:
 
-`promo.yaml` is two things in one file. A `TalkInfo` object records everything the tool knew
-when it produced the folder — the conference, the slot, track, format, level, topics,
-abstract, and for each speaker the website's own title next to the role line the card
-printed, the resolved employer, handles, profile URL and whether the card got a real photo
-or fell back to initials. Below it sit the editable `SpeakerOverride` and
-`TalkOverride` objects, pre-filled with the values the cards actually used: the correction
-where you made one, the guess otherwise.
+```yaml
+kind: Source            # what the website said: title, abstract, slot, speakers, updatedAt
+---
+kind: TalkOverride      # editable — the only part an import takes
+metadata: {name: <talk id>, editedAt: …, revision: 3f2a9c1e04b7}
+spec: {}
+---
+kind: SpeakerOverride   # one per speaker on the talk, empty until you correct them
+metadata: {name: dario-haaland, revision: 44136fa355b3}
+spec: {}
+---
+kind: Output            # what the cards and copy used: role lines, employers and whether
+                        # each was guessed, photos found, handles, cards, warnings, stale
+```
 
-`TalkInfo` is ignored when the file is loaded, so a bundle can be passed straight back with
-`--manifest` after editing — no need to strip the record first, and `promo import` merges it
-into the project manifest. There is deliberately no generation timestamp, so re-exporting
-produces an identical folder.
+The overrides carry **your corrections only**. A guessed employer is in `Output`, marked
+`employerGuessed: true`, and never in an override, where importing it would confirm it. To
+start from a value, copy it from `Output` into the override. The file's header lists every
+field.
+
+`Source` and `Output` are ignored when the file is loaded, so a bundle can still be passed
+straight back with `--manifest`. There is deliberately no generation timestamp:
+`Output.metadata.updatedAt` is the latest of the source and override times, so re-exporting
+an unchanged talk produces an identical folder.
+
+`promo export` shows a progress bar on stderr when that is a terminal.
 
 Cards are self-contained: the speaker photo is an embedded JPEG and the typefaces are
 base64 `@font-face` rules, so one SVG is the whole artifact. Text is real editable
@@ -296,14 +333,26 @@ the record; `git checkout promos.yaml` is the undo.
 - **Copy language** overrides the detected language; *auto* names what it detected.
 - **Display title** shortens a title on the card without touching the program.
 - **hidden** excludes a talk from `--all` and from the Export button.
+- **Posted** records the date the promo went out. **today** fills it in, and the row gets a
+  *posted* badge. It is a manual record: posting stays manual, and the date changes nothing
+  else.
 - **Export all** writes a bundle per visible talk to `--out`, through the same code as
   `promo export --all`, so the two produce identical folders.
 - **Import ← out/** merges the edited `promo.yaml` files back, through the same code as
-  `promo import`. It reports every field it changed, re-renders the affected rows, and
-  leaves unedited bundles alone. Tick **guesses** for `--confirm-guesses`.
+  `promo import`. It reports every field it changed and every conflict, and re-renders the
+  rows. Tick **force** for `--force`.
+- Each row has its own **Export** and **Import**, for one talk at a time. Import finds the
+  talk's bundle by the id it records, so it still works after a display-title change renamed
+  the folder.
 
-Startup fetches the 49 speaker profile pages once (~3 MB each, then cached on disk); after
-that page loads are instant. `--no-links` skips it entirely. Cards are served as the same
+Exports and imports run in the background with a progress bar, one at a time; starting a
+second one while one runs says so rather than racing it. The header says when the website
+data was fetched and last changed, and each row when its website data and its corrections
+last changed.
+
+Startup fetches the 49 speaker profile pages once (~3 MB each, then cached on disk), with a
+progress bar; after that page loads are instant. `--no-links` skips the fetch and uses the
+handles in `source.yaml`. Cards are served as the same
 self-contained SVGs you would post, so the preview is the artifact rather than an
 approximation — which does mean a fully scrolled page pulls ~24 MB from localhost.
 
@@ -323,40 +372,35 @@ A directory is searched for `promo.yaml` rather than rejected, since what you ha
 export is `out/` with a folder per talk. `promo serve` has the same thing as an **Import ←
 out/** button, sharing this code so the two cannot disagree about what an import covers.
 
-**It imports the edits, not the file.** An exported `promo.yaml` pre-fills the name and the
-guessed employer, so importing it verbatim would turn every guess into a confirmed
-correction and silence the warnings that exist to be read. Each field is compared against
-what the tool would say with no override at all, and only genuine differences are taken:
+**It is a three-way merge.** Each override in a bundle records the `revision` it had when it
+was exported. For every object, the import compares that against the bundle's version and
+the project's current one:
+
+| | |
+|---|---|
+| unchanged in the bundle | skipped. An old bundle never reverts newer work |
+| changed only in the bundle | taken **whole**, so a field you deleted is cleared and `hidden: false` unhides |
+| changed in both places | a **conflict**: reported, and the project's version kept. `--force` takes the bundle's |
 
 ```
 $ go run ./cmd/promo import out/
-importing 36 file(s)
-
 out/d1-0900-dario-haaland-kan-skyen-kjore-pa-en-brodrister/promo.yaml
   SpeakerOverride/dario-haaland employer: "Bysten Labs AS"
-  SpeakerOverride/dario-haaland image: "photos/dario.jpg"
-  SpeakerOverride/dario-haaland name: "Dárió Håaland"
+  SpeakerOverride/dario-haaland name: "Dario" → (cleared)
+  conflict, not applied: SpeakerOverride/dario-haaland image: "a.jpg" → "b.jpg"
 
-3 change(s) written to promos.yaml
+2 change(s) from 36 file(s) written to promos.yaml
+1 conflict(s) left as the manifest has them: changed in both places since the export.
+Re-run with --force to take the bundles' version.
 ```
 
-Overwriting a value the project manifest already has shows both, so a conflict is visible
-rather than silent — and the import wins, since you asked for it:
+Re-importing an unedited bundle reports nothing. An object written by hand, with no
+revision, has nothing to merge against, so only the fields it sets are taken.
 
-```
-  SpeakerOverride/dario-haaland employer: "Bysten Labs AS" → "Bysten Labs ASA"
-```
+Bundles from before the three-part layout are refused, with a message to re-export: they
+pre-filled every guess, and importing them would confirm every guess at once.
 
-Re-importing an unchanged bundle reports nothing.
-
-`--confirm-guesses` imports the pre-filled values too. That is how you say *yes, that guess
-was right* and stop being asked about it.
-
-Two omissions are deliberate. A field a bundle does not mention leaves the project
-manifest's value alone, because otherwise half the bundles would clear whatever they
-happened not to carry. And `hidden` can only be turned **on** by an import: it is a bool, so
-"unset" and "false" are indistinguishable in the file — unhide in the project manifest or
-the browser, where the intent is unambiguous.
+`promo import` no longer needs the program at all, and shows a progress bar on a terminal.
 
 The whole merge is written once, under one lock, so an import either lands completely or
 not at all.
@@ -368,10 +412,11 @@ Kubernetes-style manifest. It is meant to be committed: it is the record of ever
 correction made to data the tool guessed.
 
 ```yaml
-apiVersion: promo.cloudnativedays.no/v1alpha1
+apiVersion: promo.cloudnativedays.no/v1alpha2
 kind: SpeakerOverride
 metadata:
   name: dario-haaland             # speaker key: the slug, as printed by `promo list`
+  editedAt: 2026-10-01T13:54:12Z  # set when the correction changes
 spec:
   name: Aurélie Vache             # fixes what the CMS lost; the slug stays put
   employer: Bysten Labs
@@ -382,7 +427,7 @@ spec:
     linkedin: https://www.linkedin.com/in/dario
     bluesky: dario.bsky.social
 ---
-apiVersion: promo.cloudnativedays.no/v1alpha1
+apiVersion: promo.cloudnativedays.no/v1alpha2
 kind: TalkOverride
 metadata:
   name: 09b41694-27be-495d-abe3-1899bd725ad8   # talk id
@@ -390,7 +435,10 @@ spec:
   displayTitle: Kort tittel
   hidden: false
   language: no                                 # en or no; omit to auto-detect
+  posted: "2026-10-16"                         # when the promo went out
 ```
+
+A `v1alpha1` manifest still loads, and is written back as `v1alpha2` on the next save.
 
 An overridden employer stops being reported as a guess, and reaches the card's role line as
 well as the copy — the card saying the wrong thing is usually why you are correcting it.
@@ -461,7 +509,7 @@ card clips it to the rounded square either way, so an off-square photo is croppe
 than squashed.
 
 `promo serve` shows a **Photo** field per speaker, outlined in cyan and labelled *none,
-showing initials* when the card had to fall back. `hasPhoto` in each bundle's `TalkInfo`
+showing initials* when the card had to fall back. `hasPhoto` in each bundle's `Output`
 says the same thing for a whole export — and it reports whether the photo was actually
 *fetched*, so a URL that 404s shows up as `false` rather than looking configured.
 
@@ -487,12 +535,14 @@ internal/layout/    font metrics, greedy wrap, size autofit
 internal/render/    SVG emitters (portrait, landscape)
 internal/lang/      language detection and per-language wording
 internal/textcase/  title-case and name capitalisation for the 🪄 buttons
-internal/promo/     resolves a talk against the manifest, handles and language — the one
-                    place corrections are applied; everything below reads its promo.Talk
+internal/source/    the website snapshot (source.yaml): what changed, and when
+internal/promo/     resolves a talk against the manifest, snapshot, handles and language —
+                    the one place corrections are applied; everything below reads promo.Talk
 internal/post/      LinkedIn / Bluesky copy
 internal/raster/    SVG → PNG via an external tool, PNG → JPEG via stdlib
-internal/export/    per-talk bundles, shared by the CLI and the server
-internal/manifest/  override manifests (load, validate, save, import, bundle encoding)
+internal/export/    per-talk bundles (Source, overrides, Output), shared by the CLI and the server
+internal/manifest/  override manifests: load, validate, save, three-way import
+internal/progress/  progress reporting, and the terminal bar
 internal/web/       preview server, templates, vendored HTMX
 assets/fonts/       vendored OFL fonts + licences
 ```

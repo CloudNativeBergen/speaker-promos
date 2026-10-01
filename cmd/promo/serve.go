@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/vehagn/speaker-promos/internal/export"
+	"github.com/vehagn/speaker-promos/internal/progress"
 	"github.com/vehagn/speaker-promos/internal/theme"
 	"github.com/vehagn/speaker-promos/internal/web"
 )
@@ -25,7 +27,7 @@ func cmdServe(args []string) error {
 	width := fs.Int("width", 0, "raster width in pixels (default: the card's own width)")
 	quality := fs.Int("jpeg-quality", 88, "JPEG quality, 1-100")
 	noPhotos := fs.Bool("no-photos", false, "skip speaker photos (renders initials instead)")
-	noLinks := fs.Bool("no-links", false, "skip fetching speaker pages for social handles")
+	noLinks := fs.Bool("no-links", false, "use the handles last recorded in the snapshot rather than fetching speaker pages")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -39,7 +41,7 @@ func cmdServe(args []string) error {
 		return err
 	}
 	loader := common.loader()
-	program, err := loader.Load()
+	program, snap, err := common.load(loader)
 	if err != nil {
 		return err
 	}
@@ -53,6 +55,7 @@ func cmdServe(args []string) error {
 	server, err := web.New(web.Options{
 		Program:     program,
 		Set:         set,
+		Source:      snap,
 		Theme:       th,
 		Images:      images,
 		Loader:      loader,
@@ -77,12 +80,11 @@ func cmdServe(args []string) error {
 	// Fetching profiles and photos is the slow part — 49 speaker pages at ~3 MB
 	// each — so it happens here with a progress line rather than inside the
 	// first page load, where it looked like a hung browser.
-	fmt.Print("fetching speaker profiles and photos… ")
-	server.Warm(6, func(done, total int) {
-		if done == total {
-			fmt.Printf("%d/%d\n", done, total)
-		}
-	})
+	fmt.Fprintln(os.Stderr, "fetching speaker profiles and photos…")
+	bar := progress.NewBar(os.Stderr)
+	report := bar.Func()
+	server.Warm(6, func(done, total int) { report(done, total, "") })
+	bar.Clear()
 	fmt.Printf("%s — %d talks\n", program.Conference.Title, len(program.Talks))
 	fmt.Printf("overrides: %s\n", set.Path())
 	fmt.Printf("\n  http://%s\n\n", ln.Addr())

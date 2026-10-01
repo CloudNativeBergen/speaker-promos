@@ -1,0 +1,13 @@
+{{define "job.html"}}
+{{- /*
+     A running export or import. It polls itself: each response is this
+     fragment again, until the job finishes and the response is its result —
+     sent out-of-band, with no trigger, which is what stops the polling.
+*/ -}}
+<div class="job" hx-get="/jobs/{{.ID}}" hx-trigger="every 400ms" hx-swap="outerHTML">
+  <span>{{.Label}}…</span>
+  <progress{{if .Total}} value="{{.Done}}" max="{{.Total}}"{{end}}></progress>
+  <span class="count">{{.Done}}/{{.Total}}</span>
+  {{with .Step}}<span class="none">{{.}}</span>{{end}}
+</div>
+{{- end}}

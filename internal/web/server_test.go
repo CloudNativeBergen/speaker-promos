@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -103,6 +104,31 @@ func postForm(t *testing.T, h http.Handler, path string, form url.Values) *httpt
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// runJob follows a job the way the browser does: the response that started it
+// carries a poll, and polling continues until a response comes back without
+// one. It returns that final response. A response with no job in it — the
+// job never started — is returned as it is.
+func runJob(t *testing.T, h http.Handler, started *httptest.ResponseRecorder) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := started
+	for i := 0; i < 600; i++ {
+		m := regexp.MustCompile(`hx-get="(/jobs/\d+)"`).FindStringSubmatch(rec.Body.String())
+		if m == nil {
+			return rec
+		}
+		time.Sleep(20 * time.Millisecond)
+		rec = get(t, h, m[1])
+	}
+	t.Fatal("job did not finish")
+	return nil
+}
+
+// do posts and follows the job it starts.
+func do(t *testing.T, h http.Handler, path string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	return runJob(t, h, postForm(t, h, path, form))
 }
 
 func TestIndexListsEveryTalk(t *testing.T) {
@@ -301,7 +327,7 @@ func TestTalkOverrideAndHidden(t *testing.T) {
 func TestExportWritesABundlePerTalk(t *testing.T) {
 	srv, h, _ := newTestServer(t)
 
-	rec := postForm(t, h, "/export", url.Values{"size": {"portrait"}})
+	rec := do(t, h, "/export", url.Values{"size": {"portrait"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d\n%s", rec.Code, rec.Body)
 	}
@@ -349,13 +375,13 @@ func TestExportWritesABundlePerTalk(t *testing.T) {
 		t.Errorf("bluesky.txt = %q", body)
 	}
 
-	// The manifest is pre-filled with what the card actually used, so it can be
-	// edited and fed back.
+	// The manifest carries the overrides to edit — here an empty one, since
+	// nothing was corrected — and the guess only in the output record.
 	yml, err := os.ReadFile(filepath.Join(bundle, "promo.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"kind: SpeakerOverride", "name: dario-haaland", "Bysten Labs"} {
+	for _, want := range []string{"kind: SpeakerOverride", "name: dario-haaland", "kind: Output", "employerGuessed: true"} {
 		if !strings.Contains(string(yml), want) {
 			t.Errorf("promo.yaml missing %q:\n%s", want, yml)
 		}
@@ -364,7 +390,7 @@ func TestExportWritesABundlePerTalk(t *testing.T) {
 	// Hiding a talk excludes it, matching `promo export --all`.
 	postForm(t, h, "/talk/talk-2", url.Values{"hidden": {"1"}})
 	os.RemoveAll(srv.opts.OutDir)
-	rec = postForm(t, h, "/export", url.Values{})
+	rec = do(t, h, "/export", url.Values{})
 	if !strings.Contains(rec.Body.String(), "wrote 1 talks") || !strings.Contains(rec.Body.String(), "1 hidden") {
 		t.Errorf("export said %q", rec.Body.String())
 	}
@@ -636,11 +662,11 @@ func TestImportButtonIsPresent(t *testing.T) {
 
 	for _, want := range []string{
 		`hx-post="/import"`,
-		// It swaps the whole row list, since a merge can change any number of
-		// talks.
-		`hx-target="#rows"`,
-		`name="confirm-guesses"`,
+		`name="force"`,
 		`id="status"`,
+		// And one of each per talk.
+		`hx-post="/talk/` + talkID + `/export`,
+		`hx-post="/talk/` + talkID + `/import`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("index missing %q", want)
@@ -652,7 +678,7 @@ func TestImportButtonIsPresent(t *testing.T) {
 // to say what to do rather than surface a stat failure.
 func TestImportWithNothingExported(t *testing.T) {
 	_, h, _ := newTestServer(t)
-	rec := postForm(t, h, "/import", url.Values{})
+	rec := do(t, h, "/import", url.Values{})
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d\n%s", rec.Code, rec.Body)
@@ -667,23 +693,18 @@ func TestImportWithNothingExported(t *testing.T) {
 	if strings.Contains(body, "no such file or directory") {
 		t.Error("a raw stat error leaked into the UI")
 	}
-	// The rows still come back, so the page is not left empty.
-	if !strings.Contains(body, `id="rows"`) {
-		t.Error("the row list was not re-rendered")
-	}
 }
 
 // The whole loop, through the same code the CLI uses.
 func TestImportButtonMergesAnEditedBundle(t *testing.T) {
 	srv, h, manifestPath := newTestServer(t)
 
-	if rec := postForm(t, h, "/export", url.Values{"size": {"portrait"}}); rec.Code != http.StatusOK {
+	if rec := do(t, h, "/export", url.Values{"size": {"portrait"}}); rec.Code != http.StatusOK {
 		t.Fatalf("export failed: %s", rec.Body)
 	}
 
-	// Unedited bundles must import as nothing: they carry pre-filled guesses,
-	// and taking those would silence the warnings that exist to be read.
-	rec := postForm(t, h, "/import", url.Values{})
+	// Unedited bundles must import as nothing.
+	rec := do(t, h, "/import", url.Values{})
 	if !strings.Contains(rec.Body.String(), "nothing to import from") {
 		t.Errorf("an unedited import changed something: %s", rec.Body)
 	}
@@ -706,14 +727,14 @@ func TestImportButtonMergesAnEditedBundle(t *testing.T) {
 	docs := strings.Split(string(raw), "\n---\n")
 	for i, d := range docs {
 		if strings.Contains(d, "kind: SpeakerOverride") {
-			docs[i] = strings.Replace(d, "\n  name: Dario Haaland", "\n  name: Dárió Håaland", 1)
+			docs[i] = strings.Replace(d, "spec: {}", "spec:\n  name: Dárió Håaland", 1)
 		}
 	}
 	if err := os.WriteFile(edited, []byte(strings.Join(docs, "\n---\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	rec = postForm(t, h, "/import", url.Values{})
+	rec = do(t, h, "/import", url.Values{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d\n%s", rec.Code, rec.Body)
 	}
@@ -745,7 +766,7 @@ func TestImportButtonMergesAnEditedBundle(t *testing.T) {
 // serving the cards from before the merge.
 func TestImportBumpsTheCardRevision(t *testing.T) {
 	srv, h, _ := newTestServer(t)
-	postForm(t, h, "/export", url.Values{"size": {"portrait"}})
+	do(t, h, "/export", url.Values{"size": {"portrait"}})
 
 	bundles, _ := filepath.Glob(filepath.Join(srv.opts.OutDir, "*", "promo.yaml"))
 	for _, b := range bundles {
@@ -756,14 +777,14 @@ func TestImportBumpsTheCardRevision(t *testing.T) {
 		docs := strings.Split(string(raw), "\n---\n")
 		for i, d := range docs {
 			if strings.Contains(d, "kind: SpeakerOverride") {
-				docs[i] = strings.Replace(d, "\n  name: Dario Haaland", "\n  name: Ny Navn", 1)
+				docs[i] = strings.Replace(d, "spec: {}", "spec:\n  name: Ny Navn", 1)
 			}
 		}
 		os.WriteFile(b, []byte(strings.Join(docs, "\n---\n")), 0o644)
 	}
 
 	before := extractCardURL(t, get(t, h, "/talk/"+talkID).Body.String())
-	postForm(t, h, "/import", url.Values{})
+	do(t, h, "/import", url.Values{})
 	after := extractCardURL(t, get(t, h, "/talk/"+talkID).Body.String())
 
 	if before == after {
@@ -783,9 +804,9 @@ func TestImportRejectsAMalformedBundle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec := postForm(t, h, "/import", url.Values{})
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500", rec.Code)
+	rec := do(t, h, "/import", url.Values{})
+	if !strings.Contains(rec.Body.String(), `class=" error"`) {
+		t.Errorf("the failure is not shown as an error: %s", rec.Body)
 	}
 	if !strings.Contains(rec.Body.String(), "unsupported apiVersion") {
 		t.Errorf("body = %q", rec.Body)
@@ -1227,5 +1248,87 @@ func TestWandOnAlreadyCorrectValuesStoresNothing(t *testing.T) {
 	}
 	if body, err := os.ReadFile(manifestPath); err == nil && strings.Contains(string(body), "dario-haaland") {
 		t.Errorf("an already-correct name was stored:\n%s", body)
+	}
+}
+
+// One talk at a time: the row's Export writes just its folder, and its Import
+// merges just its bundle and swaps back just its row.
+func TestPerTalkExportAndImport(t *testing.T) {
+	srv, h, manifestPath := newTestServer(t)
+
+	rec := do(t, h, "/talk/"+talkID+"/export", url.Values{"size": {"portrait"}})
+	if !strings.Contains(rec.Body.String(), "dario-haaland") {
+		t.Errorf("export said %q", rec.Body)
+	}
+	dirs, _ := filepath.Glob(filepath.Join(srv.opts.OutDir, "*"))
+	if len(dirs) != 1 {
+		t.Fatalf("wrote %d folders, want just this talk's: %v", len(dirs), dirs)
+	}
+
+	// A display title renames the next export's folder; the import must still
+	// find this one, by the talk id it records.
+	postForm(t, h, "/talk/"+talkID, url.Values{"displayTitle": {"Ny tittel"}})
+	bundle := filepath.Join(dirs[0], "promo.yaml")
+	raw, _ := os.ReadFile(bundle)
+	docs := strings.Split(string(raw), "\n---\n")
+	for i, d := range docs {
+		if strings.Contains(d, "kind: SpeakerOverride") {
+			docs[i] = strings.Replace(d, "spec: {}", "spec:\n  employer: Bysten Labs AS", 1)
+		}
+	}
+	os.WriteFile(bundle, []byte(strings.Join(docs, "\n---\n")), 0o644)
+
+	rec = do(t, h, "/talk/"+talkID+"/import", url.Values{})
+	body := rec.Body.String()
+	if !strings.Contains(body, "imported 1 change") {
+		t.Errorf("import said %q", body)
+	}
+	// Just this row comes back, out-of-band, with the import applied — and the
+	// display title set after the export survives, since the bundle did not
+	// touch it.
+	if n := strings.Count(body, `class="row `); n != 1 || !strings.Contains(body, `hx-swap-oob="true"`) {
+		t.Errorf("want one row swapped out-of-band, got %d rows", n)
+	}
+	if !strings.Contains(body, "Bysten Labs AS") || !strings.Contains(body, "Ny tittel") {
+		t.Errorf("row does not show both edits:\n%s", body)
+	}
+	saved, _ := os.ReadFile(manifestPath)
+	if !strings.Contains(string(saved), "employer: Bysten Labs AS") || !strings.Contains(string(saved), "editedAt:") {
+		t.Errorf("manifest = %s", saved)
+	}
+
+	// The other talk has no bundle, which is said rather than failed.
+	if rec := postForm(t, h, "/talk/talk-2/import", url.Values{}); !strings.Contains(rec.Body.String(), "export it first") {
+		t.Errorf("importing an unexported talk said %q", rec.Body)
+	}
+}
+
+// One job at a time: a second one is refused, not queued.
+func TestASecondJobIsRefusedWhileOneRuns(t *testing.T) {
+	srv, h, _ := newTestServer(t)
+	srv.jobs.running = &job{label: "Exporting 2 talks"}
+	rec := postForm(t, h, "/export", url.Values{})
+	if !strings.Contains(rec.Body.String(), "already running: exporting 2 talks") {
+		t.Errorf("body = %q", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "/jobs/") {
+		t.Error("a second job was started")
+	}
+}
+
+func TestPostedIsRecordedAndShown(t *testing.T) {
+	_, h, manifestPath := newTestServer(t)
+	rec := postForm(t, h, "/talk/"+talkID, url.Values{"postedToday": {"1"}})
+	today := time.Now().Format(time.DateOnly)
+	if !strings.Contains(rec.Body.String(), "posted "+today) {
+		t.Errorf("row has no posted badge:\n%s", rec.Body)
+	}
+	saved, _ := os.ReadFile(manifestPath)
+	if !strings.Contains(string(saved), `posted: "`+today+`"`) {
+		t.Errorf("manifest = %s", saved)
+	}
+
+	if rec := postForm(t, h, "/talk/"+talkID, url.Values{"posted": {"next week"}}); rec.Code != http.StatusInternalServerError {
+		t.Errorf("an invalid date was accepted: %d", rec.Code)
 	}
 }

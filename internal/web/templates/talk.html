@@ -1,19 +1,32 @@
 {{define "talk.html"}}
-<section class="row {{if .Talk.Hidden}}hidden{{end}}" id="{{.Anchor}}">
+<section class="row {{if .Talk.Hidden}}hidden{{end}}" id="{{.Anchor}}"{{if .OOB}} hx-swap-oob="true"{{end}}>
   <div class="card">
     <img src="{{.CardURL}}" alt="promo card for {{.Talk.Title}}" loading="lazy">
     <div class="actions">
       <a href="/download/{{.Talk.ID}}?size={{.Size}}"><button>Download SVG</button></a>
       <a href="{{.CardURL}}" target="_blank"><button>Open full size</button></a>
     </div>
+    {{/* One talk at a time, through the same jobs as the header buttons. The
+         import finds this talk's bundle by its id, so it still works after a
+         display-title change renamed the folder. */}}
+    <div class="actions">
+      <button hx-post="/talk/{{.Talk.ID}}/export?size={{.Size}}" hx-target="#status" hx-swap="innerHTML"
+              title="Write just this talk's folder">Export</button>
+      <button hx-post="/talk/{{.Talk.ID}}/import?size={{.Size}}" hx-target="#status" hx-swap="innerHTML"
+              title="Merge this talk's edited promo.yaml back">Import</button>
+    </div>
     {{range .Warnings}}<p class="warn">⚠ {{.}}</p>{{end}}
   </div>
 
   <div class="detail">
-    <h2>{{.Talk.Title}}</h2>
+    <h2>{{.Talk.Title}}{{with .Talk.Posted}} <span class="badge">posted {{.}}</span>{{end}}</h2>
     <p class="slot">
       Day {{.Talk.Schedule.Day}} · {{.Talk.Schedule.TimeRange}} · {{.Talk.Schedule.ShortTrack}}
       {{with .Talk.FormatLabel}} · {{.}}{{end}}
+    </p>
+    <p class="times">
+      {{with day .WebsiteAt}}website updated {{.}}{{else}}website data not yet recorded{{end}}
+      {{- with day .EditedAt}} · edited {{.}}{{end}}
     </p>
 
     {{/* Talk-level overrides. hx-include picks up the hidden checkbox too. */}}
@@ -46,6 +59,15 @@
               <option value="en" {{if eq .Override.Language "en"}}selected{{end}}>English</option>
               <option value="no" {{if eq .Override.Language "no"}}selected{{end}}>Norsk</option>
             </select>
+          </div>
+          <div>
+            <label for="posted-{{.Anchor}}">Posted</label>
+            <span class="check">
+              <input type="date" id="posted-{{.Anchor}}" name="posted" value="{{.Override.Posted}}"
+                     hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
+                     hx-swap="outerHTML" hx-trigger="change" hx-include="closest form">
+              <button type="submit" name="postedToday" value="1" title="Posted today">today</button>
+            </span>
           </div>
           <div>
             <label>Exclude from bulk renders</label>

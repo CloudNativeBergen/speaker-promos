@@ -1,7 +1,7 @@
 {{define "rows.html"}}
 {{/* The whole row list, so an import — which can change any number of talks —
      can swap it in one response rather than guessing which rows moved. */}}
-<main id="rows">
+<main id="rows"{{if .OOB}} hx-swap-oob="true"{{end}}>
   {{range .Talks}}{{template "talk.html" .}}{{end}}
 </main>
 {{end}}

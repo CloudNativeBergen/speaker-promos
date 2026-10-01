@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/post"
@@ -30,9 +31,16 @@ type talkView struct {
 	Size     string
 	Speakers []speakerView
 	Drafts   []draftView
-	// Warnings are the render-side notes for this card: truncated text, or
-	// emoji that some renderers will drop.
+	// Warnings are the notes for this card: truncated text, emoji that some
+	// renderers will drop, or a correction the website has since overtaken.
 	Warnings []string
+	// WebsiteAt is when the website's data for this talk or any of its
+	// speakers last changed; EditedAt when any of their corrections did.
+	WebsiteAt time.Time
+	EditedAt  time.Time
+	// OOB marks a row rendered to be swapped in out-of-band, as the per-talk
+	// import does.
+	OOB bool
 }
 
 // speakerView is one speaker as resolved, plus what the form needs on top.

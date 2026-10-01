@@ -18,6 +18,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/post"
+	"github.com/vehagn/speaker-promos/internal/progress"
 	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
@@ -95,6 +96,23 @@ type Result struct {
 	// Warnings are per-talk notes worth surfacing: truncated text, emoji that
 	// some renderers drop, or a raster step that failed.
 	Warnings []string
+}
+
+// WriteAll writes a bundle per talk, reporting progress after each. It is the
+// whole of `promo export` and of the preview server's Export buttons.
+//
+// It stops at the first talk that fails; the bundles before it are written.
+func (e *Exporter) WriteAll(root string, talks []promo.Talk, report progress.Func) ([]Result, error) {
+	out := make([]Result, 0, len(talks))
+	for i, t := range talks {
+		res, err := e.Write(root, t)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, res)
+		report.Report(i+1, len(talks), res.Dir)
+	}
+	return out, nil
 }
 
 // Write produces one talk's bundle under root. The talk comes from the same
@@ -228,6 +246,14 @@ func collectNotes(drafts []post.Draft, in post.Input) string {
 			}
 		}
 	}
+	for _, sp := range in.Talk.Speakers {
+		if sp.Stale {
+			if b.Len() == 0 {
+				b.WriteString("Check before posting\n====================\n\n")
+			}
+			fmt.Fprintf(&b, "- the website changed %s's details after they were corrected — check the correction still holds\n", sp.Name)
+		}
+	}
 	if mentions := post.Mentions(in); len(mentions) > 0 {
 		if b.Len() > 0 {
 			b.WriteString("\n")
@@ -240,63 +266,159 @@ func collectNotes(drafts []post.Draft, in post.Input) string {
 	return b.String()
 }
 
-// writeManifest writes the per-talk record and its editable overrides.
+// bundleHeader introduces a bundle's promo.yaml.
+const bundleHeader = `# Everything that produced the cards in this folder, in three parts.
+#
+#   Source           what the website said. A record: edits here do nothing.
+#   TalkOverride     your corrections — the only part an import takes. Each
+#   SpeakerOverride  speaker on the talk has one, empty until you correct them.
+#   Output           what the cards and copy actually used. A record as well;
+#                    copy a value from here into an override to start from it.
+#
+# Edit the overrides and run "promo import" on this file or its folder, or use
+# Import in "promo serve". Leave metadata.revision alone: it is how an import
+# tells your edit here from a later edit to the project, and reports a
+# conflict rather than overwriting one.
+#
+# SpeakerOverride fields:
+#   name       the CMS is where people typed their own name, so accents go
+#              missing. Correcting it does not rename this folder.
+#   employer   what the post names; job is the role before it.
+#   job
+#   title      sets the card's role line verbatim, for roles that do not fit
+#              "<job> at <employer>". Employer still drives what the post says.
+#   image      a URL, or a file next to this manifest. A speaker with no photo
+#              renders a monogram.
+#   links      linkedin, bluesky, x, github.
+#
+# TalkOverride fields:
+#   displayTitle  the title on the card and in the copy.
+#   language      en or no; omit to detect.
+#   hidden        true to leave the talk out of bulk exports.
+#   posted        the date the promo went out, YYYY-MM-DD.
+`
+
+// Output is the spec of a bundle's Output document: what the cards and copy
+// actually used, once every correction was applied.
+type Output struct {
+	Conference OutputConference `yaml:"conference"`
+	Talk       OutputTalk       `yaml:"talk"`
+	Speakers   []OutputSpeaker  `yaml:"speakers"`
+	// Cards lists the image files written beside this manifest.
+	Cards []string `yaml:"cards,omitempty"`
+	// Warnings is what the render reported: truncated text, or emoji that some
+	// renderers drop.
+	Warnings []string `yaml:"warnings,omitempty"`
+	// Stale names the speakers whose correction predates a website change.
+	Stale []string `yaml:"stale,omitempty"`
+}
+
+// OutputConference is the event a bundle belongs to.
+type OutputConference struct {
+	Title      string `yaml:"title"`
+	Dates      string `yaml:"dates,omitempty"`
+	Location   string `yaml:"location,omitempty"`
+	ProgramURL string `yaml:"programUrl,omitempty"`
+}
+
+// OutputTalk is the talk as the cards present it.
+type OutputTalk struct {
+	Title string `yaml:"title"`
+	// Language is what the copy is worded in; Detected what detection alone
+	// would have picked.
+	Language    string `yaml:"language"`
+	Detected    string `yaml:"detectedLanguage"`
+	Slot        string `yaml:"slot,omitempty"`
+	FormatLabel string `yaml:"formatLabel,omitempty"`
+	Hidden      bool   `yaml:"hidden,omitempty"`
+	Posted      string `yaml:"posted,omitempty"`
+}
+
+// OutputSpeaker is one speaker as the card and copy show them.
+type OutputSpeaker struct {
+	Key  string `yaml:"key"`
+	Name string `yaml:"name"`
+	// Title is the role line the card printed.
+	Title    string `yaml:"title,omitempty"`
+	Employer string `yaml:"employer,omitempty"`
+	Job      string `yaml:"job,omitempty"`
+	// EmployerGuessed marks an employer parsed from the website's title rather
+	// than taken from an override.
+	EmployerGuessed bool   `yaml:"employerGuessed,omitempty"`
+	Image           string `yaml:"image,omitempty"`
+	// HasPhoto is false when the card fell back to a monogram, which is the
+	// case an `image:` override exists to fix. It reports whether the photo
+	// was actually fetched, so an URL that 404s shows up here too.
+	HasPhoto   bool      `yaml:"hasPhoto"`
+	ProfileURL string    `yaml:"profileUrl,omitempty"`
+	Links      cnd.Links `yaml:"links,omitempty"`
+}
+
+// writeManifest writes the bundle's promo.yaml: Source, overrides, Output.
 func (e *Exporter) writeManifest(dir string, t promo.Talk, res Result) (string, error) {
 	const name = "promo.yaml"
 	conf := e.conference()
 
-	info := manifest.TalkInfoSpec{
-		Conference: manifest.ConferenceInfo{
-			Title: conf.Title, StartDate: conf.StartDate, EndDate: conf.EndDate,
-			City: conf.City, Country: conf.Country, Domain: conf.Domain,
+	out := Output{
+		Conference: OutputConference{
+			Title: conf.Title, Dates: conf.DateRange(), Location: conf.Location(),
 			ProgramURL: conf.ProgramURL(),
 		},
-		Talk: manifest.TalkDetail{
-			ID: t.ID, Title: t.Title, Day: t.Schedule.Day, Date: t.Schedule.Date,
-			StartTime: t.Schedule.StartTime, EndTime: t.Schedule.EndTime, Track: t.Schedule.Track,
-			Format: t.Format, FormatLabel: t.FormatLabel(),
-			Level: t.Level, Topics: t.Topics, Abstract: t.Abstract,
+		Talk: OutputTalk{
+			Title: t.Title, Language: string(t.Language), Detected: string(t.Detected),
+			Slot:        joinNonEmpty(fmt.Sprintf("Day %d", t.Schedule.Day), t.Schedule.TimeRange(), t.Schedule.ShortTrack()),
+			FormatLabel: t.FormatLabel(), Hidden: t.Hidden, Posted: t.Posted,
 		},
 		Cards:    cardFiles(res.Files),
 		Warnings: res.Warnings,
+		Stale:    t.StaleSpeakers(),
 	}
-	// The submitted title is recorded only when an override changed it, so the
-	// record shows both.
-	if t.SubmittedTitle != t.Title {
-		info.Talk.SubmittedTitle = t.SubmittedTitle
-	}
-
-	speakers := make([]manifest.BundleSpeaker, 0, len(t.Speakers))
+	keys := make([]string, 0, len(t.Speakers))
 	for _, sp := range t.Speakers {
-		info.Speakers = append(info.Speakers, manifest.SpeakerInfo{
-			Name:            sp.Name,
+		keys = append(keys, sp.Key)
+		out.Speakers = append(out.Speakers, OutputSpeaker{
 			Key:             sp.Key,
-			Slug:            sp.Source.Slug,
-			SubmittedTitle:  sp.Source.Title,
+			Name:            sp.Name,
 			Title:           sp.Title,
 			Employer:        sp.Role.Employer,
 			Job:             sp.Role.Job,
 			EmployerGuessed: sp.Role.Guessed,
 			Image:           sp.Image,
-			// Recorded rather than inferred from Image being set: an URL that
-			// fails to fetch also lands on the monogram, and this is the field
-			// that tells you an `image:` override would help.
-			HasPhoto:   e.Renderer.HasPhoto(sp.Image),
-			ProfileURL: conf.SpeakerURL(sp.Source),
-			Links:      sp.Links,
+			HasPhoto:        e.Renderer.HasPhoto(sp.Image),
+			ProfileURL:      conf.SpeakerURL(sp.Source),
+			Links:           sp.Links,
 		})
-		current, _ := e.Resolver.Set.Speaker(sp.Key)
-		speakers = append(speakers, manifest.BundleSpeaker{Key: sp.Key, Spec: promo.BundleSpec(current, sp)})
 	}
 
-	data, err := e.Resolver.Set.EncodeBundle(info, speakers)
+	// The source talk is the one the website gave, not the display title.
+	src := t.Talk
+	src.Title = t.SubmittedTitle
+	docs := []manifest.Document{e.Resolver.Source.Document(src)}
+	docs = append(docs, e.Resolver.Set.BundleOverrides(t.ID, keys)...)
+	// LastChanged rather than the time of the export, so an unchanged
+	// re-export is byte-identical and a bundle in git does not churn.
+	docs = append(docs, manifest.Doc(manifest.KindOutput,
+		manifest.Metadata{Name: t.ID, UpdatedAt: t.LastChanged()}, out))
+
+	data, err := manifest.Encode(bundleHeader, docs)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("encoding manifest for %q: %w", t.Title, err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 		return "", fmt.Errorf("writing %s: %w", name, err)
 	}
 	return name, nil
+}
+
+// joinNonEmpty joins the non-empty parts with " · ".
+func joinNonEmpty(parts ...string) string {
+	var out []string
+	for _, p := range parts {
+		if p != "" && p != "Day 0" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, " · ")
 }
 
 // cardFiles keeps just the image files from a bundle's file list.
