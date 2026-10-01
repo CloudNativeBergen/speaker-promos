@@ -114,6 +114,16 @@ header .check { color: rgba(255,255,255,.9); font-size: 12px; gap: 5px; }
   font-size: 11px; font-weight: 600; vertical-align: 3px; padding: 2px 8px;
   border-radius: 999px; background: var(--ok); color: var(--bg);
 }
+.settings { margin: 18px 24px 0; padding: 10px 14px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel); }
+.settings summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.settings form { margin-top: 12px; }
+.controls { align-items: end; margin-top: 10px; }
+.slider { display: flex; align-items: center; gap: 8px; }
+.slider input { flex: 1; accent-color: var(--accent); }
+.slider output { font: 12px ui-monospace, monospace; color: var(--muted); min-width: 3ch; }
+input[type=color] { width: 100%; height: 34px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--panel-2); padding: 2px; }
 .job { display: flex; align-items: center; gap: 12px; }
 .job progress { flex: 1; max-width: 420px; accent-color: var(--accent); }
 .status .error { color: var(--bad); }
@@ -148,6 +158,20 @@ input[type=date] {
   </form>
   <span class="pill">{{.Manifest}}</span>
 </header>
+{{/* The global card settings. Every card without its own value follows these,
+     so a change redraws every row. */}}
+<details class="settings">
+  <summary>Card settings for every promo</summary>
+  <form hx-post="/settings" hx-trigger="change, submit" hx-target="#status" hx-swap="innerHTML">
+    <input type="hidden" name="size" value="{{.Size}}">
+    <div class="grid controls">
+{{- range .Settings}}
+      {{template "field.html" .}}
+{{- end}}
+      <div><button type="submit" name="reset" value="1">reset all</button></div>
+    </div>
+  </form>
+</details>
 <div id="status" class="status"></div>
 {{template "rows.html" .}}
 <script>

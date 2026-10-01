@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -551,5 +552,108 @@ func TestCardJoinsSpeakerNamesInTheTalksLanguage(t *testing.T) {
 		if got := svgText(t, forced.SVG); !strings.Contains(got, "Imma Valls og Tom Donohue") {
 			t.Errorf("%s: forced Norwegian card text = %q", size, got)
 		}
+	}
+}
+
+// A card's adjustments reach the drawing: a larger title scale draws the title
+// larger, a gradient colour replaces the theme's.
+func TestCardAdjustments(t *testing.T) {
+	r := renderer(t)
+	plain := resolve(testTalk(), lang.Auto)
+	adjusted := plain
+	adjusted.Card = theme.Adjust{TitleScale: 0.6, GradientFrom: "#123456"}
+
+	a, err := r.Card(testConference(), plain, "portrait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := r.Card(testConference(), adjusted, "portrait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.SVG, "#123456") || strings.Contains(a.SVG, "#123456") {
+		t.Error("the gradient colour was not applied")
+	}
+	size := func(svg string) string {
+		m := regexp.MustCompile(`font-size="([0-9.]+)"[^>]*>[^<]*Pods`).FindStringSubmatch(svg)
+		if m == nil {
+			t.Fatalf("no title in card")
+		}
+		return m[1]
+	}
+	if size(a.SVG) == size(b.SVG) {
+		t.Errorf("title drawn at %s px either way", size(a.SVG))
+	}
+	// The renderer's own theme is untouched for the next card.
+	if again, _ := r.Card(testConference(), plain, "portrait"); again.SVG != a.SVG {
+		t.Error("an adjusted card changed how the next one draws")
+	}
+}
+
+// sizedPNG is a w×h opaque PNG.
+func sizedPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// A photo keeps its own shape and covers the square; the sliders move through
+// its overhang, edge to edge, and never past it.
+func TestFramePhoto(t *testing.T) {
+	portrait := sizedPNG(t, 300, 400)
+	const x, y, size = 100.0, 200.0, 600.0
+
+	ix, iy, w, h := framePhoto(portrait, promo.PhotoFit{}, x, y, size)
+	if w != size || h != size*4/3 {
+		t.Fatalf("drawn %gx%g, want the photo's own shape covering the frame", w, h)
+	}
+	if ix != x || iy != y-(h-size)/2 {
+		t.Errorf("unmoved photo at %g,%g, want it centred", ix, iy)
+	}
+	// Up shows the top of the photo: its top edge meets the frame's.
+	if _, iy, _, _ := framePhoto(portrait, promo.PhotoFit{Y: -1}, x, y, size); iy != y {
+		t.Errorf("Y=-1 put the photo's top at %g, want %g", iy, y)
+	}
+	if _, iy, _, h := framePhoto(portrait, promo.PhotoFit{Y: 1}, x, y, size); iy+h != y+size {
+		t.Errorf("Y=1 put the photo's bottom at %g, want %g", iy+h, y+size)
+	}
+	// A portrait photo has no sideways overhang until it is zoomed.
+	if ix, _, _, _ := framePhoto(portrait, promo.PhotoFit{X: 1}, x, y, size); ix != x {
+		t.Errorf("X moved an unzoomed portrait photo to %g", ix)
+	}
+	if ix, _, w, _ := framePhoto(portrait, promo.PhotoFit{X: 1, Zoom: 2}, x, y, size); ix+w != x+size {
+		t.Errorf("zoomed X=1 put the right edge at %g, want %g", ix+w, x+size)
+	}
+	// An unreadable photo is taken to be square.
+	if _, _, w, h := framePhoto([]byte("not an image"), promo.PhotoFit{}, x, y, size); w != size || h != size {
+		t.Errorf("unreadable photo drawn %gx%g", w, h)
+	}
+}
+
+// The card draws the photo at its own shape, not squashed into the square.
+func TestCardDrawsThePhotoUncropped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(sizedPNG(t, 300, 400))
+	}))
+	defer srv.Close()
+	th, _ := theme.Default()
+	r, err := New(th, cache.New(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	talk := testTalk()
+	talk.Speakers[0].Image = srv.URL + "/photo.png"
+	res, err := r.Card(testConference(), resolve(talk, lang.Auto), "portrait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`<image x="[0-9.-]+" y="[0-9.-]+" width="([0-9.]+)" height="([0-9.]+)"`).FindStringSubmatch(res.SVG)
+	if m == nil || m[1] == m[2] {
+		t.Errorf("photo drawn as %v, want its 3:4 shape", m)
 	}
 }

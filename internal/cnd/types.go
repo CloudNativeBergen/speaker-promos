@@ -58,7 +58,7 @@ type ImageSource struct {
 func (s ImageSource) Empty() bool { return s.URL == "" && s.Path == "" }
 
 // ImageSource resolves a photo reference — a CMS URL, any other URL, or a path
-// on disk — for a square of the given size.
+// on disk — for a frame of the given size.
 //
 // Transform parameters are added only for the CMS CDN, the one host that
 // understands them; anywhere else they would be ignored at best, and could
@@ -83,8 +83,12 @@ func ImageSourceOf(image string, size int) ImageSource {
 	// difference in the size of every promo. `fm` is set explicitly rather than
 	// via `auto=format` because the fetcher sends `Accept: */*`, which would
 	// leave the choice of codec up to the CDN.
+	//
+	// fit=max scales the photo to fit the box but keeps its own shape. The CDN
+	// is not asked to crop it square: the card does that itself, and a photo
+	// cropped before it arrives cannot be moved to show what was cut away.
 	return ImageSource{
-		URL: fmt.Sprintf("%s%sw=%d&h=%d&fit=crop&fm=jpg&q=82", image, sep, size, size),
+		URL: fmt.Sprintf("%s%sw=%d&h=%d&fit=max&fm=jpg&q=82", image, sep, size, size),
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/source"
+	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
 // Speaker is one presenter as the promo shows them.
@@ -44,6 +45,8 @@ type Speaker struct {
 	Image string
 	// Links are the scraped handles with any correction merged over them.
 	Links cnd.Links
+	// Photo is how the photo sits in its frame.
+	Photo PhotoFit
 
 	// UpdatedAt is when the website's data for this speaker last changed, and
 	// EditedAt when their correction did. Either is zero when unknown.
@@ -55,6 +58,11 @@ type Speaker struct {
 	Stale bool
 }
 
+// PhotoFit chooses which part of a photo its square frame shows: X and Y from
+// -1 (the left or top edge) to 1 (the right or bottom edge), and Zoom from 1.
+// The zero PhotoFit is centred and unscaled.
+type PhotoFit struct{ X, Y, Zoom float64 }
+
 // Values are the speaker's fields as the manifest names them: the values the
 // card and copy actually use, which is what an edit form is pre-filled with.
 func (sp Speaker) Values() manifest.SpeakerSpec {
@@ -65,6 +73,7 @@ func (sp Speaker) Values() manifest.SpeakerSpec {
 		Title:    sp.Title,
 		Image:    sp.Image,
 		Links:    sp.Links,
+		PhotoX:   sp.Photo.X, PhotoY: sp.Photo.Y, PhotoZoom: sp.Photo.Zoom,
 	}
 }
 
@@ -87,6 +96,9 @@ type Talk struct {
 	Hidden bool
 	// Posted is the date the promo went out, or "" while it has not.
 	Posted string
+	// Card is the slider adjustments this card is drawn with: the talk's own
+	// over the global defaults.
+	Card theme.Adjust
 
 	// UpdatedAt, EditedAt and Stale say for the talk itself what they say on
 	// a Speaker.
@@ -201,6 +213,10 @@ func (r *Resolver) Talk(src cnd.Talk) Talk {
 		t.EditedAt = r.Set.EditedAt(manifest.KindTalkOverride, src.ID)
 	}
 	t.Hidden, t.Posted = spec.Hidden, spec.Posted
+	t.Card = spec.Card
+	if r.Set != nil {
+		t.Card = spec.Card.Over(r.Set.Defaults())
+	}
 	// Only a correction to what the website says can go stale; hiding a talk
 	// or recording that it was posted is not about its content.
 	t.Stale = overridden && (spec.DisplayTitle != "" || spec.Language != "") && stale(t.EditedAt, t.UpdatedAt)
@@ -328,6 +344,7 @@ func (r *Resolver) speaker(src cnd.Speaker) Speaker {
 	if spec.Job != "" {
 		sp.Role.Job = spec.Job
 	}
+	sp.Photo = PhotoFit{spec.PhotoX, spec.PhotoY, spec.PhotoZoom}
 	sp.Links = scraped.Merge(spec.Links.Normalize())
 	return sp
 }
@@ -363,5 +380,7 @@ func Baseline(sp cnd.Speaker, links cnd.Links) manifest.SpeakerSpec {
 		Title:    sp.Title,
 		Image:    sp.Image,
 		Links:    links,
+		// Unzoomed, which is also what a zoom slider rests at.
+		PhotoZoom: 1,
 	}
 }

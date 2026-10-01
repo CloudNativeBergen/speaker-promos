@@ -267,3 +267,45 @@ func TestLoadDoesNotMutateTheBuiltInTheme(t *testing.T) {
 		t.Error("an earlier Default() result was mutated by Load")
 	}
 }
+
+func TestAdjusted(t *testing.T) {
+	base, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Nothing set is the theme itself — which is what keeps every unadjusted
+	// card identical.
+	if base.Adjusted(Adjust{}) != base {
+		t.Error("an empty Adjust copied the theme")
+	}
+
+	a := base.Adjusted(Adjust{TitleScale: 1.5, PhotoScale: 0.5, Spacing: 2, GradientFrom: "#000000"})
+	p, ap := base.Geometry["portrait"], a.Geometry["portrait"]
+	if ap.Text["talk"].MaxSize != p.Text["talk"].MaxSize*1.5 || ap.Text["talk"].MinSize != p.Text["talk"].MinSize*1.5 {
+		t.Errorf("talk = %+v", ap.Text["talk"])
+	}
+	if ap.Text["name"] != p.Text["name"] {
+		t.Error("an unset scale changed the names")
+	}
+	if ap.PhotoSize != p.PhotoSize/2 || ap.Gap != p.Gap*2 {
+		t.Errorf("photo %d, gap %d", ap.PhotoSize, ap.Gap)
+	}
+	if a.Palette.GradientFrom != "#000000" || a.Palette.GradientTo != base.Palette.GradientTo {
+		t.Errorf("palette = %+v", a.Palette)
+	}
+	// The original is untouched.
+	if base.Geometry["portrait"].Text["talk"] != p.Text["talk"] {
+		t.Error("Adjusted modified the theme it was given")
+	}
+}
+
+func TestAdjustOverAndValidate(t *testing.T) {
+	talk := Adjust{TitleScale: 1.2}
+	global := Adjust{TitleScale: 0.8, NameScale: 0.9}
+	if got := talk.Over(global); got != (Adjust{TitleScale: 1.2, NameScale: 0.9}) {
+		t.Errorf("Over = %+v", got)
+	}
+	if err := (Adjust{PhotoScale: 3}).Validate(); err == nil {
+		t.Error("a photo scale of 3 should be out of range")
+	}
+}

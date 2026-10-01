@@ -639,7 +639,7 @@ func TestArbitraryPhotoHostIsFetchedVerbatim(t *testing.T) {
 		t.Fatal("the host was never asked")
 	}
 	for _, a := range asked {
-		for _, bolted := range []string{"fit=crop", "fm=jpg", "w=600"} {
+		for _, bolted := range []string{"fit=max", "fm=jpg", "w=600"} {
 			if strings.Contains(a, bolted) {
 				t.Errorf("request %q carries a CMS transform parameter %q", a, bolted)
 			}
@@ -1309,5 +1309,71 @@ func TestPostedIsRecordedAndShown(t *testing.T) {
 
 	if rec := postForm(t, h, "/talk/"+talkID, url.Values{"posted": {"next week"}}); rec.Code != http.StatusInternalServerError {
 		t.Errorf("an invalid date was accepted: %d", rec.Code)
+	}
+}
+
+// The global settings redraw every row, and a talk's sliders store only what
+// differs from them.
+func TestCardSettingsGlobalAndPerTalk(t *testing.T) {
+	_, h, manifestPath := newTestServer(t)
+
+	if body := get(t, h, "/").Body.String(); !strings.Contains(body, `hx-post="/settings"`) ||
+		!strings.Contains(body, `name="card.titleScale"`) {
+		t.Fatal("the settings panel or the talk sliders are missing")
+	}
+
+	rec := postForm(t, h, "/settings", url.Values{"titleScale": {"1.2"}, "nameScale": {"1"}})
+	if n := strings.Count(rec.Body.String(), `class="row `); n != 2 {
+		t.Errorf("settings redrew %d rows, want every one", n)
+	}
+	saved, _ := os.ReadFile(manifestPath)
+	if !strings.Contains(string(saved), "kind: CardDefaults") || !strings.Contains(string(saved), "titleScale: 1.2") ||
+		strings.Contains(string(saved), "nameScale") {
+		t.Errorf("manifest = %s", saved)
+	}
+
+	// The talk form arrives with every slider pre-set to the card's values:
+	// the inherited 1.2 is not the talk's own, the 0.8 is.
+	postForm(t, h, "/talk/"+talkID, url.Values{
+		"card.titleScale": {"1.2"}, "card.photoScale": {"0.8"}, "card.gradientFrom": {"#1d4ed8"},
+	})
+	saved, _ = os.ReadFile(manifestPath)
+	talkDoc := string(saved)[strings.Index(string(saved), "kind: TalkOverride"):]
+	if !strings.Contains(talkDoc, "photoScale: 0.8") || strings.Contains(talkDoc, "titleScale") ||
+		strings.Contains(talkDoc, "gradientFrom") {
+		t.Errorf("talk override = %s", talkDoc)
+	}
+
+	// Reset drops the talk's own settings.
+	postForm(t, h, "/talk/"+talkID, url.Values{"card.photoScale": {"0.8"}, "reset": {"1"}})
+	if saved, _ = os.ReadFile(manifestPath); strings.Contains(string(saved), "kind: TalkOverride") {
+		t.Errorf("reset left the talk's settings:\n%s", saved)
+	}
+
+	if rec := postForm(t, h, "/settings", url.Values{"spacing": {"9"}}); !strings.Contains(rec.Body.String(), "out of range") {
+		t.Errorf("an out-of-range setting was accepted: %s", rec.Body)
+	}
+}
+
+// Photo sliders store a framing, and resting at the neutral position stores
+// nothing.
+func TestPhotoSliders(t *testing.T) {
+	_, h, manifestPath := newTestServer(t)
+	form := url.Values{"talk": {talkID}, "name": {"Dario Haaland"}, "employer": {"Bysten Labs"},
+		"photoX": {"0"}, "photoY": {"0"}, "photoZoom": {"1"}}
+	postForm(t, h, "/speaker/dario-haaland", form)
+	if saved, _ := os.ReadFile(manifestPath); strings.Contains(string(saved), "photo") {
+		t.Errorf("neutral sliders stored a framing:\n%s", saved)
+	}
+	form.Set("photoZoom", "1.5")
+	form.Set("photoX", "-0.25")
+	postForm(t, h, "/speaker/dario-haaland", form)
+	saved, _ := os.ReadFile(manifestPath)
+	if !strings.Contains(string(saved), "photoZoom: 1.5") || !strings.Contains(string(saved), "photoX: -0.25") {
+		t.Errorf("manifest = %s", saved)
+	}
+	form.Set("photoZoom", "9")
+	if rec := postForm(t, h, "/speaker/dario-haaland", form); rec.Code != http.StatusInternalServerError {
+		t.Errorf("an out-of-range zoom was accepted: %d", rec.Code)
 	}
 }

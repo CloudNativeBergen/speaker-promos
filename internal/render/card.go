@@ -1,8 +1,13 @@
 package render
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
 	"os"
 	"strings"
@@ -12,6 +17,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/layout"
 	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
+	_ "golang.org/x/image/webp"
 )
 
 // Renderer draws promo cards for one conference with one theme.
@@ -87,6 +93,13 @@ func (r *Renderer) Inspect(conf cnd.Conference, t promo.Talk, size string) (Resu
 }
 
 func (r *Renderer) render(conf cnd.Conference, t promo.Talk, size string, inspect bool) (Result, error) {
+	// The card's slider adjustments are a theme of its own: everything below
+	// reads r.Theme, so drawing with an adjusted copy is all they take.
+	if adjusted := r.Theme.Adjusted(t.Card); adjusted != r.Theme {
+		copy := *r
+		copy.Theme = adjusted
+		r = &copy
+	}
 	g, err := r.Theme.Size(size)
 	if err != nil {
 		return Result{}, err
@@ -214,9 +227,11 @@ func (r *Renderer) photo(c *canvas, p *pass, sp promo.Speaker, x, y, size, radiu
 	c.writef("  <defs><clipPath id=%q><rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" rx=\"%s\"/></clipPath></defs>\n",
 		clip, num(x), num(y), num(size), num(size), num(radius))
 
-	if data, mime, ok := r.photoData(p, sp.Image, int(size)); ok {
+	zoom := max(sp.Photo.Zoom, 1)
+	if data, mime, ok := r.photoData(p, sp.Image, int(size*zoom)); ok {
+		ix, iy, w, h := framePhoto(data, sp.Photo, x, y, size)
 		c.writef("  <image x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" clip-path=\"url(#%s)\" preserveAspectRatio=\"xMidYMid slice\" xlink:href=\"data:%s;base64,%s\"/>\n",
-			num(x), num(y), num(size), num(size), clip, mime, base64.StdEncoding.EncodeToString(data))
+			num(ix), num(iy), num(w), num(h), clip, mime, base64.StdEncoding.EncodeToString(data))
 	} else {
 		c.writef("  <rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" rx=\"%s\" %s/>\n",
 			num(x), num(y), num(size), num(size), num(radius),
@@ -227,6 +242,26 @@ func (r *Renderer) photo(c *canvas, p *pass, sp promo.Speaker, x, y, size, radiu
 	c.writef("  <rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" rx=\"%s\" fill=\"none\" %s stroke-width=\"%s\"/>\n",
 		num(x), num(y), num(size), num(size), num(radius),
 		parsePaint(r.Theme.Palette.PhotoStroke).strokeAttrs(1), num(size/160+2))
+}
+
+// framePhoto places a photo, at its own aspect ratio, in the square frame at
+// x, y: scaled so its shorter side covers the frame, then enlarged by the zoom.
+//
+// Whatever overhangs the frame is what the clip cuts away, and it is also what
+// X and Y move through: -1 lines the photo's left (or top) edge up with the
+// frame's, 1 its right (or bottom) edge. So a portrait photo can be moved to
+// show its top, and the frame is never left with an empty edge. A photo whose
+// size cannot be read is taken to be square.
+func framePhoto(data []byte, fit promo.PhotoFit, x, y, size float64) (ix, iy, w, h float64) {
+	aspect := 1.0
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil && cfg.Width > 0 && cfg.Height > 0 {
+		aspect = float64(cfg.Width) / float64(cfg.Height)
+	}
+	cover := size * max(fit.Zoom, 1)
+	w, h = cover*max(aspect, 1), cover/min(aspect, 1)
+	ix = x + (size-w)/2 - fit.X*(w-size)/2
+	iy = y + (size-h)/2 - fit.Y*(h-size)/2
+	return ix, iy, w, h
 }
 
 // drawPhotos paints a row of speaker photos at the left edges photoRow

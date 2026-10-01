@@ -333,6 +333,8 @@ the record; `git checkout promos.yaml` is the undo.
 - **Copy language** overrides the detected language; *auto* names what it detected.
 - **Display title** shortens a title on the card without touching the program.
 - **hidden** excludes a talk from `--all` and from the Export button.
+- **Card settings for every promo**, under the header, and the sliders in each row's
+  **Card** box adjust the card itself — see *Card controls* below.
 - **Posted** records the date the promo went out. **today** fills it in, and the row gets a
   *posted* badge. It is a manual record: posting stays manual, and the date changes nothing
   else.
@@ -458,6 +460,40 @@ Open source Architect, Co-Chair CNCF TAG Infrastructure"* is one from the 2026 p
 `employer:` still drives what the **post** says, so a `title:` on its own changes the card
 and leaves the copy guessing; set both when the guess is also wrong.
 
+### Card controls
+
+A few sliders nudge a card without a theme file: the size of the **title**, of the
+speaker **names** and of the **photo**, the **spacing** between blocks (each 0.5× to 2×),
+and the two **gradient** colours. They are set in two places:
+
+```yaml
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: CardDefaults          # every card; there is one, named default
+metadata:
+  name: default
+spec:
+  titleScale: 0.9
+  gradientFrom: "#7C3AED"
+---
+apiVersion: promo.cloudnativedays.no/v1alpha2
+kind: TalkOverride
+metadata:
+  name: 09b41694-27be-495d-abe3-1899bd725ad8
+spec:
+  card:                     # this card only, over the defaults
+    titleScale: 1.2
+    photoScale: 0.8
+```
+
+A talk's value wins over the default, field by field. In `promo serve` each row's sliders
+start where its card is; moving one back to the default value un-sets it, and **reset to
+global** drops all of the row's own. Changing a default redraws every row.
+
+A title turned up too far is still kept inside its panel: when the panel would run into the
+footer, the title steps down a size until it fits, and only if even its smallest size does
+not is the card reported as truncated. The bundle's `Output.card` records the values each
+card was drawn with.
+
 ### Fixing capitalisation
 
 A 🪄 sits on the **Display title** and **Name** labels. It rewrites that field and saves, so
@@ -507,6 +543,15 @@ Transform parameters (crop, size, JPEG re-encode) are only added for the CMS CDN
 the only host that understands them — an overridden photo is fetched exactly as given. The
 card clips it to the rounded square either way, so an off-square photo is cropped rather
 than squashed.
+
+The photo keeps its own shape until the card crops it: it is fetched uncropped, scaled so
+its shorter side fills the rounded square, and the overhang is clipped. When a speaker has
+a photo, three sliders frame it: **← →** and **↑ ↓** choose which part of the photo the
+square shows — from one edge of the photo to the other, so a portrait photo can be moved up
+to show the top of a head — and **zoom** enlarges it up to four times. They are stored on
+the speaker (`photoX`, `photoY` from -1 to 1, `photoZoom` from 1 to 4), with the photo they
+frame, so a speaker on two talks is framed the same on both. Sliders left at rest store
+nothing.
 
 `promo serve` shows a **Photo** field per speaker, outlined in cyan and labelled *none,
 showing initials* when the card had to fall back. `hasPhoto` in each bundle's `Output`

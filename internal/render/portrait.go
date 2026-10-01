@@ -4,6 +4,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/theme"
+	"maps"
 )
 
 // portrait renders the 2:3 card: logo and date at the top, speakers in the
@@ -101,16 +102,37 @@ func (r *Renderer) talkPanel(c *canvas, p *pass, g theme.Geometry, t promo.Talk,
 
 	padV := float64(g.Gap) * 0.9
 	gapS := float64(g.Gap) * 0.45
-	boxH := padV*2 + eyebrowH + titleH
-	if eyebrowH > 0 && titleH > 0 {
-		boxH += gapS
+	height := func() float64 {
+		h := padV*2 + eyebrowH + titleH
+		if eyebrowH > 0 && titleH > 0 {
+			h += gapS
+		}
+		if detailH > 0 {
+			h += gapS + detailH
+		}
+		return h
 	}
-	if detailH > 0 {
-		boxH += gapS + detailH
+	boxH, available := height(), bottom-top
+
+	// A title that wraps within its line limit can still be too tall for the
+	// space left — a long title with its size turned up, say. Its largest size
+	// then comes down until the panel fits, and only if even its smallest size
+	// does not is the card reported as overflowing.
+	if boxH > available {
+		g.Text = maps.Clone(g.Text)
+		for st := g.Text["talk"]; boxH > available && st.MaxSize > st.MinSize; {
+			st.MaxSize = max(st.MaxSize*0.95, st.MinSize)
+			g.Text["talk"] = st
+			titleH = r.measureHeight(g, "talk", t.Title, inner)
+			boxH = height()
+		}
+		if boxH > available {
+			p.overflow = append(p.overflow, "talk panel")
+		}
 	}
 
 	boxY := top
-	if available := bottom - top; available > boxH {
+	if available > boxH {
 		boxY = top + (available-boxH)/2
 	}
 

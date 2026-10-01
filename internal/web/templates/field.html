@@ -1,9 +1,9 @@
 {{define "field.html"}}
 {{- /*
-     One editable speaker field: its label, an optional 🪄 that fixes the
-     value's capitalisation, the input, and an optional hint for a guess.
+     One form input — text, slider or colour — with its label, an optional 🪄
+     that fixes the value's capitalisation, and an optional hint for a guess.
 
-     Rendered once per entry of speakerView.Fields, whose Name is the
+     Rendered for every speaker field and card control, whose Name is the
      manifest's own field name — so what the form posts is what the manifest
      stores, without either side listing the fields again.
 
@@ -22,7 +22,17 @@
                       hx-post="{{.Wand}}" hx-target="#{{.Anchor}}" hx-swap="outerHTML"
                       hx-include="closest form">🪄</button>
               {{- end}}</label>
+            {{- if eq .Type "range"}}
+            <span class="slider">
+              <input type="range" name="{{.Name}}" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}"
+                     oninput="this.nextElementSibling.value = this.value">
+              <output>{{.Value}}</output>
+            </span>
+            {{- else if eq .Type "color"}}
+            <input type="color" name="{{.Name}}" value="{{.Value}}">
+            {{- else}}
             <input type="text" name="{{.Name}}" value="{{.Value}}" placeholder="{{.Placeholder}}">
+            {{- end}}
             {{- with .Hint}}
             <p class="hint">{{.}}</p>
             {{- end}}

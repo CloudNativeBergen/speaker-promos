@@ -110,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /talk/{id}/export", s.handleTalkExport)
 	mux.HandleFunc("POST /talk/{id}/import", s.handleTalkImport)
 	mux.HandleFunc("GET /jobs/{id}", s.handleJob)
+	mux.HandleFunc("POST /settings", s.handleSettings)
 	mux.Handle("GET /static/", http.FileServerFS(files))
 	return mux
 }
@@ -126,6 +127,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Rev        int64
 		Manifest   string
 		OutDir     string
+		// Settings are the global card controls.
+		Settings []input
 		// FetchedAt is when the program page was read from the website, and
 		// ChangedAt when the snapshot last saw it change.
 		FetchedAt time.Time
@@ -140,6 +143,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Rev:        rev,
 		Manifest:   s.resolver.Set.Path(),
 		OutDir:     s.opts.OutDir,
+		Settings:   controls(s.resolver.Set.Defaults().Over(s.neutral()), "", ""),
 		FetchedAt:  s.resolver.Program.FetchedAt,
 		ChangedAt:  s.resolver.Source.UpdatedAt(),
 	}
@@ -222,6 +226,9 @@ func (s *Server) handleTalkUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("postedToday") != "" {
 		spec.Posted = time.Now().Format(time.DateOnly)
 	}
+	// The sliders are pre-set to what the card uses, so only a value that
+	// differs from the global settings is this talk's own.
+	spec.Card = readAdjust(r, "card.", s.resolver.Set.Defaults().Over(s.neutral()))
 	if _, err := manifest.ParsePosted(spec.Posted); err != nil {
 		s.fail(w, err)
 		return
@@ -238,6 +245,32 @@ func (s *Server) handleTalkUpdate(w http.ResponseWriter, r *http.Request) {
 	s.saveAndRender(w, r, src, func() error {
 		return s.resolver.Set.SetTalk(src.ID, spec)
 	})
+}
+
+// handleSettings stores the global card controls and redraws every row, since
+// every card that does not set its own value follows them.
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	a := readAdjust(r, "", s.neutral())
+	s.mu.Lock()
+	err := s.resolver.Set.SetDefaults(a)
+	if err == nil {
+		s.rev++
+	}
+	s.mu.Unlock()
+	if err != nil {
+		s.renderStatus(w, statusReport{Summary: err.Error(), Error: true})
+		return
+	}
+	var buf strings.Builder
+	s.writeRows(&buf, s.sizeParam(r))
+	if err := s.tmpl.ExecuteTemplate(&buf, "status.html", statusReport{
+		Summary: "card settings saved — every promo without its own follows them", Muted: true,
+	}); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(buf.String()))
 }
 
 func (s *Server) handleSpeakerUpdate(w http.ResponseWriter, r *http.Request) {
@@ -298,8 +331,17 @@ func (s *Server) handleSpeakerUpdate(w http.ResponseWriter, r *http.Request) {
 	base.Title = fresh
 
 	spec := submitted.Diff(base)
-	// GitHub has no input, so it is carried over rather than diffed.
+	// GitHub has no input, so it is carried over rather than diffed — and so
+	// is the photo framing when the form had no sliders for it, which it does
+	// not while the photo cannot be fetched.
 	spec.Links.GitHub = existing.Links.GitHub
+	if _, sent := r.Form["photoZoom"]; !sent {
+		spec.PhotoX, spec.PhotoY, spec.PhotoZoom = existing.PhotoX, existing.PhotoY, existing.PhotoZoom
+	}
+	if err := spec.Validate(); err != nil {
+		s.fail(w, err)
+		return
+	}
 
 	s.saveAndRender(w, r, src, func() error {
 		return s.resolver.Set.SetSpeaker(key, spec)
@@ -474,6 +516,7 @@ func (s *Server) buildViewLocked(t promo.Talk, size string, p probes) talkView {
 		CardURL: fmt.Sprintf("/card/%s?size=%s&rev=%d", t.ID, size, s.rev),
 	}
 	view.Override, _ = s.resolver.Set.Talk(t.ID)
+	view.Controls = controls(t.Card.Over(s.neutral()), "card.", view.Anchor())
 	for _, sp := range t.Speakers {
 		view.Speakers = append(view.Speakers, speakerView{Speaker: sp, HasPhoto: p.photos[sp.Image]})
 	}

@@ -24,12 +24,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
 	"github.com/vehagn/speaker-promos/internal/lang"
+	"github.com/vehagn/speaker-promos/internal/theme"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,6 +53,9 @@ const apiVersionV1Alpha1 = "promo.cloudnativedays.no/v1alpha1"
 const (
 	KindSpeakerOverride = "SpeakerOverride"
 	KindTalkOverride    = "TalkOverride"
+	// KindCardDefaults adjusts every card; a talk's own card settings win
+	// over it. There is one, named "default".
+	KindCardDefaults = "CardDefaults"
 	// KindSource and KindOutput are informational: a bundle's record of what
 	// the website said and of what its cards and copy then used. They are
 	// accepted when a manifest is loaded and then ignored, so an exported
@@ -133,6 +138,27 @@ type SpeakerSpec struct {
 	Image string `yaml:"image,omitempty"`
 	// Links are a speaker's profiles, overriding anything scraped.
 	Links cnd.Links `yaml:"links,omitempty"`
+	// PhotoX and PhotoY choose which part of the photo the square frame shows,
+	// from -1 (its left or top edge) to 1 (its right or bottom edge), and
+	// PhotoZoom enlarges it, from 1 to 4. Zero leaves the photo centred and
+	// unscaled. They belong to the photo rather than to
+	// a talk, so a speaker on two talks is framed the same on both.
+	PhotoX    float64 `yaml:"photoX,omitempty"`
+	PhotoY    float64 `yaml:"photoY,omitempty"`
+	PhotoZoom float64 `yaml:"photoZoom,omitempty"`
+}
+
+// Validate rejects a photo framing outside its range.
+func (spec SpeakerSpec) Validate() error {
+	for name, v := range map[string]float64{"photoX": spec.PhotoX, "photoY": spec.PhotoY} {
+		if v < -1 || v > 1 {
+			return fmt.Errorf("%s %g is out of range (-1–1)", name, v)
+		}
+	}
+	if z := spec.PhotoZoom; z != 0 && (z < 1 || z > 4) {
+		return fmt.Errorf("photoZoom %g is out of range (1–4)", z)
+	}
+	return nil
 }
 
 // A spec is empty when it corrects nothing; every field is a string, so the
@@ -154,6 +180,22 @@ func text[T any](name string, of func(*T) *string) field[T] {
 	return field[T]{name, func(t T) string { return *of(&t) }, func(t *T, v string) { *of(t) = v }}
 }
 
+// number is a field holding a number, where zero means "not set" and reads as
+// "". A value that does not parse is taken as not set.
+func number[T any](name string, of func(*T) *float64) field[T] {
+	return field[T]{name,
+		func(t T) string {
+			if v := *of(&t); v != 0 {
+				return strconv.FormatFloat(v, 'f', -1, 64)
+			}
+			return ""
+		},
+		func(t *T, v string) {
+			n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			*of(t) = n
+		}}
+}
+
 type fields[T comparable] []field[T]
 
 var speakerFields = fields[SpeakerSpec]{
@@ -166,6 +208,9 @@ var speakerFields = fields[SpeakerSpec]{
 	text("bluesky", func(s *SpeakerSpec) *string { return &s.Links.Bluesky }),
 	text("x", func(s *SpeakerSpec) *string { return &s.Links.X }),
 	text("github", func(s *SpeakerSpec) *string { return &s.Links.GitHub }),
+	number("photoX", func(s *SpeakerSpec) *float64 { return &s.PhotoX }),
+	number("photoY", func(s *SpeakerSpec) *float64 { return &s.PhotoY }),
+	number("photoZoom", func(s *SpeakerSpec) *float64 { return &s.PhotoZoom }),
 }
 
 // combine builds a spec field by field out of two others.
@@ -267,6 +312,8 @@ type TalkSpec struct {
 	// has not. It is a record kept by hand rather than anything the tool acts
 	// on: posting stays manual.
 	Posted string `yaml:"posted,omitempty"`
+	// Card adjusts this talk's card, over the global CardDefaults.
+	Card theme.Adjust `yaml:"card,omitempty"`
 }
 
 func (t TalkSpec) empty() bool { return t == TalkSpec{} }
@@ -281,15 +328,26 @@ var talkFields = fields[TalkSpec]{
 		return ""
 	}, func(t *TalkSpec, v string) { t.Hidden = v == "true" }},
 	text("posted", func(t *TalkSpec) *string { return &t.Posted }),
+	number("card.titleScale", func(t *TalkSpec) *float64 { return &t.Card.TitleScale }),
+	number("card.nameScale", func(t *TalkSpec) *float64 { return &t.Card.NameScale }),
+	number("card.photoScale", func(t *TalkSpec) *float64 { return &t.Card.PhotoScale }),
+	number("card.spacing", func(t *TalkSpec) *float64 { return &t.Card.Spacing }),
+	text("card.gradientFrom", func(t *TalkSpec) *string { return &t.Card.GradientFrom }),
+	text("card.gradientTo", func(t *TalkSpec) *string { return &t.Card.GradientTo }),
 }
+
+// adjustFields are the card knobs a CardDefaults or a talk's card carries.
+var adjustFields = []string{"titleScale", "nameScale", "photoScale", "spacing", "gradientFrom", "gradientTo"}
 
 // Validate rejects a language or posted date the tool would not understand.
 func (t TalkSpec) Validate() error {
 	if _, err := lang.ParseLanguage(t.Language); err != nil {
 		return err
 	}
-	_, err := ParsePosted(t.Posted)
-	return err
+	if _, err := ParsePosted(t.Posted); err != nil {
+		return err
+	}
+	return t.Card.Validate()
 }
 
 // ParsePosted validates a posted date. Empty means not posted.
@@ -337,6 +395,7 @@ type Set struct {
 	path     string
 	speakers map[string]entry[SpeakerSpec]
 	talks    map[string]entry[TalkSpec]
+	defaults entry[theme.Adjust]
 	// revisions are the ones a bundle's overrides were exported with, read on
 	// load. Only an import consults them.
 	revisions map[ref]string
@@ -474,7 +533,8 @@ func (s *Set) addDocument(node *yaml.Node) error {
 	switch doc.Kind {
 	case KindSpeakerOverride:
 		var spec SpeakerSpec
-		if err := checkFields(&doc.Spec, "name", "employer", "job", "title", "image", "links"); err != nil {
+		if err := checkFields(&doc.Spec, "name", "employer", "job", "title", "image", "links",
+			"photoX", "photoY", "photoZoom"); err != nil {
 			return err
 		}
 		if err := checkFields(child(&doc.Spec, "links"), "linkedin", "bluesky", "x", "github"); err != nil {
@@ -483,13 +543,19 @@ func (s *Set) addDocument(node *yaml.Node) error {
 		if err := doc.Spec.Decode(&spec); err != nil {
 			return specErr(err)
 		}
+		if err := spec.Validate(); err != nil {
+			return specErr(err)
+		}
 		if _, dup := s.speakers[name]; dup {
 			return duplicate
 		}
 		s.speakers[name] = entry[SpeakerSpec]{spec, editedAt}
 	case KindTalkOverride:
 		var spec TalkSpec
-		if err := checkFields(&doc.Spec, "displayTitle", "hidden", "language", "posted"); err != nil {
+		if err := checkFields(&doc.Spec, "displayTitle", "hidden", "language", "posted", "card"); err != nil {
+			return err
+		}
+		if err := checkFields(child(&doc.Spec, "card"), adjustFields...); err != nil {
 			return err
 		}
 		// Validated on load, so a typo is an error here rather than silently
@@ -504,6 +570,18 @@ func (s *Set) addDocument(node *yaml.Node) error {
 			return duplicate
 		}
 		s.talks[name] = entry[TalkSpec]{talkFields.trim(spec), editedAt}
+	case KindCardDefaults:
+		var spec theme.Adjust
+		if err := checkFields(&doc.Spec, adjustFields...); err != nil {
+			return err
+		}
+		if err := doc.Spec.Decode(&spec); err != nil {
+			return specErr(err)
+		}
+		if err := spec.Validate(); err != nil {
+			return specErr(err)
+		}
+		s.defaults = entry[theme.Adjust]{spec, editedAt}
 	case KindSource, KindOutput:
 		if doc.Kind == KindSource {
 			s.bundleTalk = doc.Metadata.Name
@@ -516,8 +594,8 @@ func (s *Set) addDocument(node *yaml.Node) error {
 		s.legacy = true
 		s.bundleTalk = doc.Metadata.Name
 	default:
-		return fmt.Errorf("line %d: unknown kind %q (want %s, %s, %s or %s)",
-			node.Line, doc.Kind, KindSpeakerOverride, KindTalkOverride, KindSource, KindOutput)
+		return fmt.Errorf("line %d: unknown kind %q (want %s, %s, %s, %s or %s)",
+			node.Line, doc.Kind, KindSpeakerOverride, KindTalkOverride, KindCardDefaults, KindSource, KindOutput)
 	}
 	return nil
 }
@@ -586,6 +664,26 @@ func (s *Set) EditedAt(kind, name string) time.Time {
 		return s.talks[name].EditedAt
 	}
 	return time.Time{}
+}
+
+// Defaults are the card adjustments every talk starts from.
+func (s *Set) Defaults() theme.Adjust {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.defaults.Spec
+}
+
+// SetDefaults records the global card adjustments and saves the manifest.
+func (s *Set) SetDefaults(a theme.Adjust) error {
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a != s.defaults.Spec {
+		s.defaults = entry[theme.Adjust]{a, s.now()}
+	}
+	return s.save()
 }
 
 // SetSpeaker records a speaker override and saves the manifest.
@@ -712,7 +810,10 @@ func Doc(kind string, meta Metadata, spec any) Document {
 // stays diff-stable: an edit to one speaker should show up as a change to one
 // object, not a reshuffle of the file. The caller must hold s.mu.
 func (s *Set) documents() []Document {
-	out := make([]Document, 0, len(s.speakers)+len(s.talks))
+	out := make([]Document, 0, len(s.speakers)+len(s.talks)+1)
+	if d := s.defaults; d.Spec != (theme.Adjust{}) {
+		out = append(out, Doc(KindCardDefaults, Metadata{Name: "default", EditedAt: d.EditedAt}, d.Spec))
+	}
 	for _, name := range slices.Sorted(maps.Keys(s.speakers)) {
 		e := s.speakers[name]
 		if e.Spec.empty() {

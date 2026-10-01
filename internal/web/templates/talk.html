@@ -29,10 +29,12 @@
       {{- with day .Talk.Edited}} · edited {{.}}{{end}}
     </p>
 
-    {{/* Talk-level overrides. hx-include picks up the hidden checkbox too. */}}
+    {{/* Talk-level overrides. The form posts on any change — change events
+         bubble — and on its buttons, so no input needs hx-* of its own. */}}
     <fieldset>
       <legend>Card</legend>
-      <form hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}" hx-swap="outerHTML">
+      <form hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}" hx-swap="outerHTML"
+            hx-trigger="change, submit">
         <input type="hidden" name="size" value="{{.Size}}">
         <div class="grid">
           <div>
@@ -46,15 +48,11 @@
                       hx-include="closest form">🪄</button>
             </label>
             <input type="text" id="title-{{.Anchor}}" name="displayTitle"
-                   value="{{.Talk.Title}}" placeholder="as submitted"
-                   hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
-                   hx-swap="outerHTML" hx-trigger="change" hx-include="closest form">
+                   value="{{.Talk.Title}}" placeholder="as submitted">
           </div>
           <div>
             <label for="lang-{{.Anchor}}">Copy language</label>
-            <select id="lang-{{.Anchor}}" name="language"
-                    hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
-                    hx-swap="outerHTML" hx-include="closest form">
+            <select id="lang-{{.Anchor}}" name="language">
               <option value="" {{if eq .Override.Language ""}}selected{{end}}>auto — {{.Talk.Detected}}</option>
               <option value="en" {{if eq .Override.Language "en"}}selected{{end}}>English</option>
               <option value="no" {{if eq .Override.Language "no"}}selected{{end}}>Norsk</option>
@@ -63,21 +61,26 @@
           <div>
             <label for="posted-{{.Anchor}}">Posted</label>
             <span class="check">
-              <input type="date" id="posted-{{.Anchor}}" name="posted" value="{{.Override.Posted}}"
-                     hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
-                     hx-swap="outerHTML" hx-trigger="change" hx-include="closest form">
+              <input type="date" id="posted-{{.Anchor}}" name="posted" value="{{.Override.Posted}}">
               <button type="submit" name="postedToday" value="1" title="Posted today">today</button>
             </span>
           </div>
           <div>
             <label>Exclude from bulk renders</label>
             <span class="check">
-              <input type="checkbox" name="hidden" value="1" {{if .Talk.Hidden}}checked{{end}}
-                     hx-post="/talk/{{.Talk.ID}}" hx-target="#{{.Anchor}}"
-                     hx-swap="outerHTML" hx-include="closest form">
+              <input type="checkbox" name="hidden" value="1" {{if .Talk.Hidden}}checked{{end}}>
               hidden
             </span>
           </div>
+        </div>
+        {{/* Each starts where the card is: this talk's own value, else the
+             global setting. Moving one back to the global value un-sets it. */}}
+        <div class="grid controls">
+{{- range .Controls}}
+          {{template "field.html" .}}
+{{- end}}
+          <div><button type="submit" name="reset" value="1"
+                       title="Drop this card's own settings and follow the global ones">reset to global</button></div>
         </div>
       </form>
     </fieldset>

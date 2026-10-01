@@ -9,6 +9,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/lang"
 	"github.com/vehagn/speaker-promos/internal/manifest"
 	"github.com/vehagn/speaker-promos/internal/source"
+	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
 func testResolver(t *testing.T, talks ...cnd.Talk) *Resolver {
@@ -361,5 +362,25 @@ func TestValuesAreWhatTheCardUses(t *testing.T) {
 	// Against the baseline, only the correction is a difference.
 	if diff := got.Diff(Baseline(src.Speakers[0], cnd.Links{})); diff.Employer != "Vestbit" || diff.Name != "" || diff.Job != "" {
 		t.Errorf("Diff = %+v", diff)
+	}
+}
+
+// A talk's card settings win over the global ones field by field, and a
+// speaker's framing follows them onto the card.
+func TestCardSettingsAndPhotoFit(t *testing.T) {
+	src := cnd.Talk{ID: "t", Speakers: []cnd.Speaker{{Slug: "a", Name: "A"}}}
+	r := testResolver(t, src)
+	if err := r.Set.SetDefaults(theme.Adjust{TitleScale: 0.8, Spacing: 1.2}); err != nil {
+		t.Fatal(err)
+	}
+	setTalk(t, r, "t", manifest.TalkSpec{Card: theme.Adjust{TitleScale: 1.3}})
+	setSpeaker(t, r, "a", manifest.SpeakerSpec{PhotoZoom: 2, PhotoX: 0.5})
+
+	got := r.Talk(src)
+	if want := (theme.Adjust{TitleScale: 1.3, Spacing: 1.2}); got.Card != want {
+		t.Errorf("Card = %+v, want %+v", got.Card, want)
+	}
+	if want := (PhotoFit{X: 0.5, Zoom: 2}); got.Speakers[0].Photo != want {
+		t.Errorf("Photo = %+v", got.Speakers[0].Photo)
 	}
 }

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/vehagn/speaker-promos/internal/manifest"
@@ -29,6 +30,8 @@ type talkView struct {
 	Size     string
 	Speakers []speakerView
 	Drafts   []post.Draft
+	// Controls are the card's sliders, set to the values it is drawn with.
+	Controls []input
 	// Warnings are the notes for this card: truncated text, emoji that some
 	// renderers will drop, or a correction the website has since overtaken.
 	Warnings []string
@@ -54,15 +57,19 @@ type speakerView struct {
 	HasPhoto bool
 }
 
-// speakerField is one input on a speaker's form.
-type speakerField struct {
+// input is one form control: a text field, a slider or a colour picker.
+type input struct {
 	Label string
 	// Name is the input's name AND the manifest field it corrects — which is
-	// what lets the handler read a submission back through the manifest's own
+	// what lets a handler read a submission back through the manifest's own
 	// field table instead of naming every field again.
 	Name        string
 	Value       string
 	Placeholder string
+	// Type is "" for text, "range" for a slider (between Min and Max, in
+	// Step), or "color".
+	Type           string
+	Min, Max, Step float64
 	// Hint sits under the input, for a value the tool guessed.
 	Hint string
 	// Class marks the surrounding cell: a photo the card could not fetch is
@@ -83,7 +90,7 @@ type speakerField struct {
 // in the template, so adding a correctable field is one line here and one line
 // in the manifest's own table. GitHub is deliberately absent: nothing on a card
 // or in a post uses it, so it is carried through the manifest untouched.
-func (v speakerView) Fields(anchor string) []speakerField {
+func (v speakerView) Fields(anchor string) []input {
 	photo, photoClass := "Photo", ""
 	if !v.HasPhoto {
 		photo, photoClass = "Photo — none, showing initials", "missing"
@@ -93,7 +100,7 @@ func (v speakerView) Fields(anchor string) []speakerField {
 		hint = "guessed from “" + v.Speaker.Source.Title + "”"
 	}
 
-	fields := []speakerField{
+	fields := []input{
 		{Label: "Name", Name: "name", Placeholder: "unknown",
 			Wand:      "/speaker/" + v.Speaker.Key + "/namecase",
 			WandTitle: "Capitalise the name"},
@@ -106,10 +113,23 @@ func (v speakerView) Fields(anchor string) []speakerField {
 		{Label: "Bluesky", Name: "bluesky", Placeholder: "none found"},
 		{Label: "X", Name: "x", Placeholder: "none found"},
 	}
+	// Framing only means something for a photo the card actually has.
+	if v.HasPhoto {
+		fields = append(fields,
+			input{Label: "Photo ← →", Name: "photoX", Type: "range", Min: -1, Max: 1, Step: 0.02, Placeholder: "0"},
+			input{Label: "Photo ↑ ↓", Name: "photoY", Type: "range", Min: -1, Max: 1, Step: 0.02, Placeholder: "0"},
+			input{Label: "Photo zoom", Name: "photoZoom", Type: "range", Min: 1, Max: 4, Step: 0.05, Placeholder: "1"},
+		)
+	}
 	values := v.Speaker.Values()
 	for i := range fields {
 		f := &fields[i]
-		f.Value = values.Value(f.Name)
+		// A slider has no empty state, so an unset value shows as its
+		// neutral one, which the placeholder carries.
+		f.Value = cmp.Or(values.Value(f.Name), f.Placeholder)
+		if f.Type == "" {
+			f.Value = values.Value(f.Name)
+		}
 		f.Anchor = anchor
 	}
 	return fields

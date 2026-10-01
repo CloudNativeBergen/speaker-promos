@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vehagn/speaker-promos/internal/cnd"
+	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
 // lengths counts the overrides of each kind.
@@ -257,7 +258,8 @@ func TestSkipsEmptyDocuments(t *testing.T) {
 func TestSpecFieldTableCoversEveryField(t *testing.T) {
 	full := SpeakerSpec{
 		Name: "n", Employer: "e", Job: "j", Title: "t", Image: "i",
-		Links: cnd.Links{LinkedIn: "l", Bluesky: "b", X: "x", GitHub: "g"},
+		Links:  cnd.Links{LinkedIn: "l", Bluesky: "b", X: "x", GitHub: "g"},
+		PhotoX: 0.25, PhotoY: -0.5, PhotoZoom: 1.5,
 	}
 	var rebuilt SpeakerSpec
 	for _, field := range SpeakerFields() {
@@ -467,5 +469,55 @@ func TestMetadataRejectsUnknownFields(t *testing.T) {
 	os.WriteFile(path, []byte(body), 0o644)
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "editedOn") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// Talks are walked through their own table — by the import's merge and its
+// report — so it has to cover every field too, card settings included.
+func TestTalkFieldTableCoversEveryField(t *testing.T) {
+	full := TalkSpec{
+		DisplayTitle: "d", Language: "no", Hidden: true, Posted: "2026-10-16",
+		Card: theme.Adjust{TitleScale: 1.1, NameScale: 1.2, PhotoScale: 0.9, Spacing: 1.3,
+			GradientFrom: "#000", GradientTo: "#fff"},
+	}
+	var rebuilt TalkSpec
+	for _, f := range talkFields {
+		if f.get(full) == "" {
+			t.Errorf("field %q reads back empty", f.name)
+		}
+		f.set(&rebuilt, f.get(full))
+	}
+	if rebuilt != full {
+		t.Errorf("round trip lost a field:\n got %+v\nwant %+v", rebuilt, full)
+	}
+}
+
+func TestCardDefaultsRoundTrip(t *testing.T) {
+	path := tempPath(t)
+	set := New(path)
+	want := theme.Adjust{TitleScale: 1.2, GradientFrom: "#112233"}
+	if err := set.SetDefaults(want); err != nil {
+		t.Fatal(err)
+	}
+	if err := set.SetTalk("t", TalkSpec{Card: theme.Adjust{NameScale: 0.8}}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Defaults(); got != want {
+		t.Errorf("defaults = %+v", got)
+	}
+	if spec, _ := reloaded.Talk("t"); spec.Card.NameScale != 0.8 {
+		t.Errorf("talk card = %+v", spec.Card)
+	}
+	if err := set.SetDefaults(theme.Adjust{Spacing: 9}); err == nil {
+		t.Error("an out-of-range spacing was accepted")
+	}
+	body := "apiVersion: " + APIVersion + "\nkind: SpeakerOverride\nmetadata:\n  name: a\nspec:\n  photoZoom: 9\n"
+	os.WriteFile(path, []byte(body), 0o644)
+	if _, err := Load(path); err == nil {
+		t.Error("an out-of-range photoZoom loaded")
 	}
 }

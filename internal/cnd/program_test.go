@@ -172,7 +172,7 @@ func TestImageSourceOf(t *testing.T) {
 	// The CMS CDN is the only host that understands the transform parameters.
 	cms := Speaker{Image: "https://cdn.sanity.io/images/mvzwvw14/production/abc-740x827.png"}
 	got := ImageSourceOf(cms.Image, 600)
-	if want := cms.Image + "?w=600&h=600&fit=crop&fm=jpg&q=82"; got.URL != want {
+	if want := cms.Image + "?w=600&h=600&fit=max&fm=jpg&q=82"; got.URL != want {
 		t.Errorf("CMS URL = %q, want %q", got.URL, want)
 	}
 	if got.Path != "" {

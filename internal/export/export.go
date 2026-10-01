@@ -22,6 +22,7 @@ import (
 	"github.com/vehagn/speaker-promos/internal/promo"
 	"github.com/vehagn/speaker-promos/internal/raster"
 	"github.com/vehagn/speaker-promos/internal/render"
+	"github.com/vehagn/speaker-promos/internal/theme"
 )
 
 // Formats a bundle can contain.
@@ -300,12 +301,18 @@ const bundleHeader = `# Everything that produced the cards in this folder, in th
 #   image      a URL, or a file next to this manifest. A speaker with no photo
 #              renders a monogram.
 #   links      linkedin, bluesky, x, github.
+#   photoX     which part of the photo its square shows: -1 its left edge to
+#   photoY     1 its right (photoY: top to bottom); photoZoom enlarges it,
+#   photoZoom  from 1. They follow the photo to every talk the speaker is on.
 #
 # TalkOverride fields:
 #   displayTitle  the title on the card and in the copy.
 #   language      en or no; omit to detect.
 #   hidden        true to leave the talk out of bulk exports.
 #   posted        the date the promo went out, YYYY-MM-DD.
+#   card          this card's sliders, over the project's CardDefaults:
+#                 titleScale, nameScale, photoScale, spacing (0.5 to 2), and
+#                 gradientFrom, gradientTo (colours).
 `
 
 // Output is the spec of a bundle's Output document: what the cards and copy
@@ -342,6 +349,8 @@ type OutputTalk struct {
 	FormatLabel string `yaml:"formatLabel,omitempty"`
 	Hidden      bool   `yaml:"hidden,omitempty"`
 	Posted      string `yaml:"posted,omitempty"`
+	// Card is the adjustments the card was drawn with, defaults included.
+	Card theme.Adjust `yaml:"card,omitempty"`
 }
 
 // OutputSpeaker is one speaker as the card and copy show them.
@@ -377,7 +386,7 @@ func (e *Exporter) writeManifest(dir string, t promo.Talk, res Result) (string, 
 		Talk: OutputTalk{
 			Title: t.Title, Language: string(t.Language), Detected: string(t.Detected),
 			Slot:        t.Schedule.Label(),
-			FormatLabel: t.FormatLabel(), Hidden: t.Hidden, Posted: t.Posted,
+			FormatLabel: t.FormatLabel(), Hidden: t.Hidden, Posted: t.Posted, Card: t.Card,
 		},
 		Cards:    cardFiles(res.Files),
 		Warnings: res.Warnings,
